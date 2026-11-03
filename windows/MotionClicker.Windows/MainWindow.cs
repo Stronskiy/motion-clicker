@@ -19,6 +19,7 @@ internal sealed class MainWindow : Window {
     private readonly NavigationView navigation=new() { PaneDisplayMode=NavigationViewPaneDisplayMode.LeftCompact,IsBackButtonVisible=NavigationViewBackButtonVisible.Collapsed,IsSettingsVisible=false,OpenPaneLength=180 };
     private readonly StackPanel content=new() { Spacing=20,Padding=new Thickness(28),MaxWidth=1050,HorizontalAlignment=HorizontalAlignment.Stretch };
     private readonly StackPanel controls=new() { Spacing=16 };
+    private readonly ContentControl controlsHost=new() { HorizontalContentAlignment=HorizontalAlignment.Stretch };
     private readonly StackPanel displayChoices=new() { Spacing=8 };
     private readonly List<CheckBox> selected=[];
     private readonly List<PointRow> points=[];
@@ -66,7 +67,8 @@ internal sealed class MainWindow : Window {
         start.Click+=(_,_)=>Start(); pause.Click+=(_,_)=>Stop("Paused — Start restarts from the beginning",true); stop.Click+=(_,_)=>Stop();
         content.Children.Add(toolbar);
         content.Children.Add(new TextBlock { Text="Motion Clicker",Style=(Style)Application.Current.Resources["TitleTextBlockStyle"] });
-        content.Children.Add(controls);
+        controlsHost.Content=controls;
+        content.Children.Add(controlsHost);
         content.Children.Add(new TextBlock { Text="Event preview · no input",Style=(Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
         content.Children.Add(preview); content.Children.Add(status); content.Children.Add(metrics);
         content.Children.Add(new TextBlock { Text="Pause releases owned holds; Start restarts from the beginning. Physical input stops execution. One serialized pointer; no physical simultaneity. Recording, video and editing are unavailable in this preview.",TextWrapping=TextWrapping.Wrap,Opacity=0.65 });
@@ -183,7 +185,7 @@ internal sealed class MainWindow : Window {
     private void Poll() {
         var snapshot=worker?.Runner.Snapshot;
         if(snapshot!=null) { status.Text=snapshot.Reason; metrics.Text=$"{snapshot.State} · dispatched attempts: {snapshot.Dispatched} · maximum scheduler lag: {snapshot.MaxLagUs/1000.0:0.1} ms"; }
-        controls.IsEnabled=!Active; start.IsEnabled=!Active; pause.IsEnabled=Active;
+        controlsHost.IsEnabled=!Active; start.IsEnabled=!Active; pause.IsEnabled=Active;
         if(!Active) emergency.Unregister();
     }
     private async Task Error(string text) { status.Text=text; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
