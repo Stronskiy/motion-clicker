@@ -50,6 +50,7 @@ public static class ProjectJson
             RespectNullableAnnotations = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
         };
+        options.Converters.Add(new ProjectErrorJsonConverter());
         options.Converters.Add(new ExactInt64Converter());
         options.Converters.Add(new ExactInt32Converter());
         options.Converters.Add(new NonNullArrayConverterFactory());

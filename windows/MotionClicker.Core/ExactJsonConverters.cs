@@ -96,3 +96,15 @@ internal sealed class NonNullArrayConverterFactory : JsonConverterFactory
         }
     }
 }
+
+internal sealed class ProjectErrorJsonConverter : JsonConverter<ProjectError>
+{
+    private sealed record ErrorWire(ErrorCode Code, string Path, string Message);
+    public override ProjectError Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+    {
+        var wire = JsonSerializer.Deserialize<ErrorWire>(ref reader, options) ?? throw new JsonException("Expected error object.");
+        return new(wire.Code, wire.Path, wire.Message);
+    }
+    public override void Write(Utf8JsonWriter writer, ProjectError value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, new ErrorWire(value.Code, value.Path, value.Message), options);
+}
