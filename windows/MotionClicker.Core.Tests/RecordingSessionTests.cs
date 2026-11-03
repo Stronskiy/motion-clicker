@@ -119,4 +119,10 @@ public sealed class RecordingSessionTests
         var s=Ready(new());Frames(s);s.Stop(2000000);s.WriterFinished("left",WriterStatus.Succeeded,1000);s.WriterFinished("right",WriterStatus.Succeeded,long.MaxValue);
         var p=s.Project();Assert.Equal(RecordingState.Failed,p.Manifest.State);Assert.Equal(WriterStatus.Failed,p.Manifest.Streams[1].WriterStatus);Assert.Single(p.Take.Media);
     }
+
+    [Fact] public void RequiredCaptureFlagsCannotDefaultFromWire()
+    {
+        const string json="""{"hostTimeUs":0,"nativePosition":{"x":1,"y":1},"kind":"move"}""";
+        Assert.Throws<System.Text.Json.JsonException>(()=>RecordingJson.Deserialize<CapturedPointerEvent>(json));
+    }
 }

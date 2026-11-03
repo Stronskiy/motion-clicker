@@ -145,3 +145,11 @@ extension SessionTests {
         XCTAssertEqual(p.manifest.streams[1].writerStatus,.failed);XCTAssertEqual(p.take.media.count,1)
     }
 }
+
+
+extension SessionTests {
+    func testRequiredCaptureFlagsCannotDefaultFromWire() throws {
+        let json = #"{"hostTimeUs":0,"nativePosition":{"x":1,"y":1},"kind":"move"}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(CapturedPointerEvent.self,from: Data(json.utf8)))
+    }
+}
