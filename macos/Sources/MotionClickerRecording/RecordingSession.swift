@@ -102,7 +102,7 @@ public final class RecordingSession {
             switch event.kind {
             case .buttonDown:
                 try recordingRequire(heldGroup == nil && event.button != nil && event.deltaX == nil && event.deltaY == nil, "Invalid down or simultaneous hold")
-                group = "g-" + UUID().uuidString.lowercased(); heldGroup = group; heldButton = event.button
+                group = "g-" + UUID().uuidString.lowercased()
             case .buttonUp:
                 try recordingRequire(heldGroup != nil && event.button == heldButton && event.deltaX == nil && event.deltaY == nil, "Unmatched up")
             case .move:
@@ -113,7 +113,9 @@ public final class RecordingSession {
             try recordingRequire(count <= Int32.max, "Event order exhausted")
             let action = RecordedAction(id: "e-" + UUID().uuidString.lowercased(), takeId: takeId, monitorSlotId: target.slot.id, timeUs: time, order: Int(count), kind: event.kind, x: x, y: y, button: event.button, atomicGroupId: group, deltaX: event.deltaX, deltaY: event.deltaY)
             try append(event, time: time, action: action, group: group)
-            if event.kind == .buttonUp { heldGroup = nil; heldButton = nil }
+            // Only accepted journal history may establish or release pointer ownership.
+            if event.kind == .buttonDown { heldGroup = group; heldButton = event.button }
+            else if event.kind == .buttonUp { heldGroup = nil; heldButton = nil }
         }
     }
     private func append(_ event: CapturedPointerEvent, time: Int64, action: RecordedAction?, group: String?) throws {

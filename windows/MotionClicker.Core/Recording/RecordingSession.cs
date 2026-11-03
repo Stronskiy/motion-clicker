@@ -98,7 +98,7 @@ public sealed class RecordingSession
             {
                 case ActionKind.ButtonDown:
                     Require(heldGroup is null&&e.Button is not null&&Enum.IsDefined(e.Button.Value)&&e.DeltaX is null&&e.DeltaY is null,"Invalid down or simultaneous hold");
-                    group="g-"+Guid.NewGuid().ToString();heldGroup=group;heldButton=e.Button;break;
+                    group="g-"+Guid.NewGuid().ToString();break;
                 case ActionKind.ButtonUp:Require(heldGroup is not null&&e.Button==heldButton&&e.DeltaX is null&&e.DeltaY is null,"Unmatched up");break;
                 case ActionKind.Move:Require(e.Button is null&&e.DeltaX is null&&e.DeltaY is null,"Invalid move");break;
                 case ActionKind.Scroll:Require(heldGroup is null&&e.Button is null&&e.DeltaX is double dx&&double.IsFinite(dx)&&e.DeltaY is double dy&&double.IsFinite(dy),"Invalid scroll or interleaved hold");break;
@@ -106,7 +106,10 @@ public sealed class RecordingSession
             }
             Require(count<=int.MaxValue,"Event order exhausted");
             var action=new RecordedAction("e-"+Guid.NewGuid(),takeId,target.Slot.Id,time,(int)count,e.Kind,x,y,e.Button,group,e.DeltaX,e.DeltaY);
-            Append(e,time,action,group);if(e.Kind==ActionKind.ButtonUp){heldGroup=null;heldButton=null;}
+            Append(e,time,action,group);
+            // Only accepted journal history may establish or release pointer ownership.
+            if(e.Kind==ActionKind.ButtonDown){heldGroup=group;heldButton=e.Button;}
+            else if(e.Kind==ActionKind.ButtonUp){heldGroup=null;heldButton=null;}
         });
     }
     private void Append(CapturedPointerEvent e,long time,RecordedAction? action,string? group)

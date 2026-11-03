@@ -98,7 +98,10 @@ monitors share that group. Own/control events do not affect order or ownership.
 A held group crossing an unselected display is journaled with null action and
 interrupts recording. Malformed actions, second down, unmatched up, timestamp
 reversal/overflow and journal failure fail visibly and stop the session. Every
-held group at stop is incomplete; no release is synthesized. Projection retains
+held group at stop is incomplete; no release is synthesized. Ownership changes
+only after a raw append succeeds. A rejected down (including time+1 overflow
+before append) remains a failed-session diagnostic and does not invent a held
+group in the accepted journal history. Projection retains
 raw history but omits the entire incomplete group. Duration is positive and
 exceeds every emitted event. Equal timestamps retain capture sequence.
 
