@@ -75,6 +75,7 @@ internal sealed partial class MainWindow : Window {
     }
     public MainWindow() {
         Title="Motion Clicker";
+        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory,"Assets","MotionClicker.ico"));
         // Wait for this window's XAML root before reading its per-monitor scale.
         navigation.Loaded+=(_,_)=> {
             if(sizingRoot!=null) sizingRoot.Changed-=OnSizingRootChanged;

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Motion Clicker</title>
+  <desc>A folded pearl motion ribbon joins a cursor on a cobalt glass tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="180" y1="90" x2="814" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20BAF3"/><stop offset=".32" stop-color="#0A78FF"/>
+      <stop offset=".76" stop-color="#0757D6"/><stop offset="1" stop-color="#123B8C"/>
+    </linearGradient>
+    <radialGradient id="light" cx="244" cy="94" r="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A4F5FF" stop-opacity=".52"/>
+      <stop offset=".48" stop-color="#5BDDF6" stop-opacity="0"/>
+      <stop offset="1" stop-color="#031D62" stop-opacity=".28"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="240" y1="80" x2="700" y2="936" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9FFFF" stop-opacity=".8"/>
+      <stop offset=".34" stop-color="#90E6FF" stop-opacity=".15"/>
+      <stop offset="1" stop-color="#49B7FF" stop-opacity=".3"/>
+    </linearGradient>
+    <linearGradient id="pearl" x1="314" y1="440" x2="657" y2="701" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset=".5" stop-color="#F4FCFF"/>
+      <stop offset="1" stop-color="#BDE1F4"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="451" y1="566" x2="548" y2="650" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8D6EF"/><stop offset="1" stop-color="#E8F8FF"/>
+    </linearGradient>
+    <linearGradient id="pointer" x1="637" y1="248" x2="760" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#D2ECFA"/>
+    </linearGradient>
+    <filter id="tileShadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#13243A" flood-opacity=".24"/>
+    </filter>
+    <filter id="markShadow" x="150" y="180" width="740" height="650" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="13" stdDeviation="12" flood-color="#082C70" flood-opacity=".30"/>
+    </filter>
+  </defs>
+  <g filter="url(#tileShadow)">
+    <rect x="80" y="72" width="864" height="864" rx="190" fill="url(#tile)"/>
+    <rect x="80" y="72" width="864" height="864" rx="190" fill="url(#light)"/>
+    <rect x="84" y="76" width="856" height="856" rx="186" fill="none" stroke="url(#edge)" stroke-width="5"/>
+  </g>
+  <g filter="url(#markShadow)">
+    <path d="M263 697 381 532 Q398 509 422 528 L529 610 Q554 630 575 603 L687 456"
+      fill="none" stroke="url(#pearl)" stroke-width="100" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="m424 529 105 81q25 20 46-7l27-36q-24 24-50 4l-69-53q-30-23-59 11Z" fill="url(#fold)"/>
+    <path d="M624 242 Q622 232 631 240 L831 409 Q842 418 829 421 L755 435 806 510 Q812 519 803 525 L747 563 Q738 569 732 560 L682 486 645 549 Q638 561 637 546Z"
+      fill="url(#pointer)"/>
+    <path d="M228 676 356 507 Q393 460 438 495" fill="none" stroke="#BAFAFF" stroke-opacity=".72" stroke-width="3" stroke-linecap="round"/>
+    <path d="m625 244 12 301" fill="none" stroke="#C4FFFF" stroke-opacity=".7" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>
