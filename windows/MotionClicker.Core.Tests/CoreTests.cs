@@ -239,8 +239,20 @@ public sealed class CoreTests
                     Check(array[i]!);
                 }
         }
-        Check(JsonNode.Parse(ProjectJson.Serialize(Sample()))!);
+        Check(JsonNode.Parse(ProjectJson.Serialize(Sample() with { Takes = [Sample().Takes[0] with { Media = [new("main", "media/main.mp4")] }] }))!);
     }
+    [Fact]
+    public void TypedErrorWireContainsOnlyContractFieldsAndRoundTrips()
+    {
+        var error = new ProjectError(ErrorCode.InvalidRange, "clips.clip", "Invalid range.");
+        const string expected = "{\"code\":\"invalidRange\",\"path\":\"clips.clip\",\"message\":\"Invalid range.\"}";
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(ProjectJson.Serialize(error))));
+        var decoded = ProjectJson.Deserialize<ProjectError>(expected);
+        Assert.Equal(error.Code, decoded.Code);
+        Assert.Equal(error.Path, decoded.Path);
+        Assert.Equal(error.Message, decoded.Message);
+    }
+
     [Fact]
     public void OptionalNullAndUnknownMetadataRoundTripKnownFields()
     {
