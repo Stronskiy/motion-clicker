@@ -86,4 +86,31 @@ public sealed class RecordingSessionTests
             j.Fail=false;Finish(s);Assert.Equal(RecordingState.Failed,s.State);Assert.Empty(s.Project().Events);
         }
     }
+
+    [Fact] public void FramesRejectReversalAndStopWaitsForLateWriterDrain()
+    {
+        var s=Ready(new());Frames(s);Assert.ThrowsAny<Exception>(()=>s.AcceptedFrame("left",0,1000,1000));Finish(s);Assert.Equal(RecordingState.Failed,s.State);
+        var drain=Ready(new());Frames(drain);drain.Stop(1500000);drain.AcceptedFrame("left",700000,700000,1000);drain.WriterFinished("left",WriterStatus.Succeeded,701000);
+        Assert.Null(drain.Result);drain.WriterFinished("right",WriterStatus.Succeeded,1000);Assert.Equal(701000,drain.Project().Take.DurationUs);
+        Assert.ThrowsAny<Exception>(()=>drain.WriterFinished("right",WriterStatus.Failed,1000));
+    }
+    [Fact] public void KnownDropsCompleteWithWarningsAndScrollRemainsLogical()
+    {
+        var s=Ready(new());Frames(s);s.ReportGap("left",1000,2000,GapKind.Dropped);s.Receive(new(1000010,new(100,50),ActionKind.Scroll,DeltaX:-2,DeltaY:3));Finish(s);
+        var p=s.Project();Assert.Equal(RecordingState.Completed,p.Manifest.State);Assert.NotEmpty(p.Manifest.Warnings);Assert.Equal(-2,p.Events[0].DeltaX);Assert.Equal(25,p.Events[0].Y);
+    }
+    [Fact] public void UnknownRecordingEnumsAndLargeWireIntegerRemainStrict()
+    {
+        var e=new CapturedPointerEvent(9007199254740993,new(1,1),ActionKind.Move);
+        Assert.Equal(e,RecordingJson.Deserialize<CapturedPointerEvent>(RecordingJson.Serialize(e)));
+        foreach(var invalid in new[]{"0","\"Completed\"","\"unknown\""})Assert.Throws<System.Text.Json.JsonException>(()=>System.Text.Json.JsonSerializer.Deserialize<RecordingState>(invalid,RecordingJson.Options));
+    }
+    [Fact] public void FrozenTargetsAndInvalidMappings()
+    {
+        var targets=Targets();var s=new RecordingSession("take",targets,new MemoryJournal());targets[0]=targets[1];s.SourceReady("left",new(0,0,1));
+        Assert.ThrowsAny<Exception>(()=>new RecordingSession("take",[Targets()[0],Targets()[0]],new MemoryJournal()));
+        Assert.ThrowsAny<Exception>(()=>new RecordingSession("left",Targets(),new MemoryJournal()));
+        var ready=Ready(new());Frames(ready);Finish(ready);var old=ready.Result!;old.Streams[0]=old.Streams[1];old.Targets[0]=old.Targets[1];
+        Assert.Equal("left",ready.Result!.Streams[0].MonitorSlotId);Assert.Equal("left",ready.Project().Manifest.Targets[0].Id);
+    }
 }

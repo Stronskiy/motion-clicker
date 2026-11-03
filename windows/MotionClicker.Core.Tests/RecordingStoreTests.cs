@@ -46,4 +46,21 @@ public sealed class RecordingStoreTests : IDisposable
         var outside=Root();var media=Path.Combine(store.Recovery.StagingPath,"media");Directory.Delete(media,true);Directory.CreateSymbolicLink(media,outside);
         Assert.ThrowsAny<Exception>(()=>store.MediaFile("right"));
     }
+
+    [Fact] public void RejectsUnexpectedSymlinkInMediaTreeBeforeAnyPublication()
+    {
+        var r=Root();var outside=Root();using var store=new RecordingStore(r,"take");store.Append(Record());var file=store.MediaFile("left");
+        Assert.False(File.Exists(file));File.WriteAllText(file,"synthetic-media");Assert.ThrowsAny<Exception>(()=>store.MediaFile("left"));
+        Directory.CreateSymbolicLink(Path.Combine(Path.GetDirectoryName(file)!,"hidden"),outside);
+        Assert.ThrowsAny<Exception>(()=>store.Publish(Manifest()));Assert.False(store.Recovery.MediaPublished);
+    }
+    [Fact] public void PublicationRetryAfterMetadataFailureAndConcurrentTakeCollision()
+    {
+        var r=Root();var fail=true;using var store=new RecordingStore(r,"take",op=>{if(op==StoreOperation.PublishManifest&&fail)throw new IOException("disk full");});
+        store.Append(Record());File.WriteAllText(store.MediaFile("left"),"synthetic-media");Assert.ThrowsAny<Exception>(()=>store.Publish(Manifest()));fail=false;
+        Assert.True(File.Exists(store.Publish(Manifest())));
+        var q=Root();using var first=new RecordingStore(q,"take");using var second=new RecordingStore(q,"take");
+        foreach(var s in new[]{first,second}){s.Append(Record());File.WriteAllText(s.MediaFile("left"),"synthetic-media");}
+        var path=first.Publish(Manifest());var before=File.ReadAllBytes(path);Assert.ThrowsAny<Exception>(()=>second.Publish(Manifest()));Assert.Equal(before,File.ReadAllBytes(path));
+    }
 }

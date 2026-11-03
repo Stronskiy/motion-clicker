@@ -59,3 +59,28 @@ final class StoreTests: XCTestCase {
         XCTAssertThrowsError(try store.mediaFile(monitorSlotId: "right")); try store.close()
     }
 }
+
+extension StoreTests {
+    func testRejectsUnexpectedSymlinkInMediaTreeBeforeAnyPublication() throws {
+        let r = try root(), outside = try root(), store = try RecordingStore(root: r, takeId: "take")
+        try store.append(record: record()); let file = try store.mediaFile(monitorSlotId: "left")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        try Data("synthetic-media".utf8).write(to: file)
+        XCTAssertThrowsError(try store.mediaFile(monitorSlotId: "left"))
+        try FileManager.default.createSymbolicLink(at: file.deletingLastPathComponent().appendingPathComponent("hidden"), withDestinationURL: outside)
+        XCTAssertThrowsError(try store.publish(manifest: manifest()))
+        XCTAssertFalse(store.recovery.mediaPublished); try store.close()
+    }
+    func testPublicationRetryAfterMetadataFailureAndConcurrentTakeCollision() throws {
+        let r = try root(); var fail = true
+        let store = try RecordingStore(root: r, takeId: "take") { if $0 == .publishManifest && fail { throw RecordingError(message: "disk full") } }
+        try store.append(record: record()); try Data("synthetic-media".utf8).write(to: store.mediaFile(monitorSlotId: "left"))
+        XCTAssertThrowsError(try store.publish(manifest: manifest())); fail = false
+        let path = try store.publish(manifest: manifest()); XCTAssertTrue(FileManager.default.fileExists(atPath: path.path)); try store.close()
+        let otherRoot = try root(), first = try RecordingStore(root: otherRoot, takeId: "take"), second = try RecordingStore(root: otherRoot,takeId: "take")
+        for s in [first,second] { try s.append(record: record()); try Data("synthetic-media".utf8).write(to: s.mediaFile(monitorSlotId: "left")) }
+        let published = try first.publish(manifest: manifest()), before = try Data(contentsOf: published)
+        XCTAssertThrowsError(try second.publish(manifest: manifest())); XCTAssertEqual(try Data(contentsOf: published),before)
+        try first.close(); try second.close()
+    }
+}

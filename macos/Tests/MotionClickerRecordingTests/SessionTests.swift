@@ -103,3 +103,35 @@ final class SessionTests: XCTestCase {
         }
     }
 }
+
+extension SessionTests {
+    func testFramesRejectReversalAndStopWaitsForLateWriterDrain() throws {
+        let s = try readySession(MemoryJournal()); try frames(s)
+        XCTAssertThrowsError(try s.acceptedFrame(monitorSlotId: "left",sourceTicks: 0,encodedTimeUs: 1000,durationUs: 1000))
+        try finishSession(s); XCTAssertEqual(s.state,.failed)
+        let drain = try readySession(MemoryJournal()); try frames(drain);try drain.stop(hostTimeUs: 1500000)
+        try drain.acceptedFrame(monitorSlotId: "left",sourceTicks: 700000,encodedTimeUs: 700000,durationUs: 1000)
+        try drain.writerFinished(monitorSlotId: "left",status: .succeeded,encodedDurationUs: 701000)
+        XCTAssertNil(drain.result);try drain.writerFinished(monitorSlotId: "right",status: .succeeded,encodedDurationUs: 1000)
+        XCTAssertEqual(try drain.project().take.durationUs,701000)
+        XCTAssertThrowsError(try drain.writerFinished(monitorSlotId: "right",status: .failed,encodedDurationUs: 1000))
+    }
+    func testKnownDropsCompleteWithWarningsAndScrollRemainsLogical() throws {
+        let s = try readySession(MemoryJournal());try frames(s)
+        try s.reportGap(monitorSlotId: "left",startTicks: 1000,endTicks: 2000,kind: .dropped)
+        try s.receive(event: CapturedPointerEvent(hostTimeUs: 1000010,nativePosition: Point(x: 100,y: 50),kind: .scroll,deltaX: -2,deltaY: 3))
+        try finishSession(s);let p = try s.project();XCTAssertEqual(p.manifest.state,.completed)
+        XCTAssertFalse(p.manifest.warnings.isEmpty);XCTAssertEqual(p.events[0].deltaX,-2);XCTAssertEqual(p.events[0].y,25)
+    }
+    func testUnknownRecordingEnumsAndLargeWireIntegerRemainStrict() throws {
+        let event = CapturedPointerEvent(hostTimeUs: 9007199254740993,nativePosition: Point(x: 1,y: 1),kind: .move)
+        XCTAssertEqual(try JSONDecoder().decode(CapturedPointerEvent.self,from: JSONEncoder().encode(event)),event)
+        for invalid in ["0","\"Completed\"","\"unknown\""] { XCTAssertThrowsError(try JSONDecoder().decode(RecordingState.self,from: Data(invalid.utf8))) }
+    }
+    func testFrozenTargetsAndInvalidMappings() throws {
+        var targets = recordingTargets();let s = try RecordingSession(takeId: "take",targets: targets,journal: MemoryJournal())
+        targets.removeAll();try s.sourceReady(monitorSlotId: "left",clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 0,ticksPerSecond: 1))
+        XCTAssertThrowsError(try RecordingSession(takeId: "take",targets: [recordingTargets()[0],recordingTargets()[0]],journal: MemoryJournal()))
+        XCTAssertThrowsError(try RecordingSession(takeId: "left",targets: recordingTargets(),journal: MemoryJournal()))
+    }
+}
