@@ -7,7 +7,7 @@ final class PointerFilterTests: XCTestCase {
         MacPointerSample(timestampNs: 1_000_000_000, position: Point(x: x, y: 1), kind: kind, button: button, deltaX: nil, deltaY: nil, sourceTag: tag)
     }
     func testInjectedAndWholeControlGesturesAreExcluded() throws {
-        var filter = PointerFilter(options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 0 }))
+        var filter = PointerFilter(options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 0 }), clock: syntheticPointerClock)
         XCTAssertNil(try filter.receive(sample(.buttonDown, .left, tag: 42), nowUs: 1_000_001))
         XCTAssertNil(try filter.receive(sample(.buttonDown, .left, x: -1), nowUs: 1_000_001))
         XCTAssertNil(try filter.receive(sample(.move, x: 50), nowUs: 1_000_001))
@@ -17,7 +17,7 @@ final class PointerFilterTests: XCTestCase {
         XCTAssertNotNil(try filter.receive(sample(.buttonUp, .left, x: -1), nowUs: 1_000_001))
     }
     func testControlRepeatedDownDoesNotInventBalance() throws {
-        var filter = PointerFilter(options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in true }))
+        var filter = PointerFilter(options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in true }), clock: syntheticPointerClock)
         XCTAssertNil(try filter.receive(sample(.buttonDown, .left), nowUs: 1_000_001))
         XCTAssertThrowsError(try filter.receive(sample(.buttonDown, .right), nowUs: 1_000_001))
     }

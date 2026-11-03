@@ -16,7 +16,8 @@ final class FrameAdmission: @unchecked Sendable {
     func leave() { lock.lock(); defer { lock.unlock() }; precondition(active > 0); active -= 1 }
 }
 /// NOT Sendable. Every method, including journal/writer calls, belongs to one
-/// serial owner. No retained frame payload or whole event/gap array lives here.
+/// serial owner. Only one pending image and one unresolved loss per source are
+/// retained; no frame, event or gap history arrays live here.
 final class RecordingEngine {
     private let session: RecordingSession
     let writers: [String: any VideoWriting]
@@ -30,22 +31,28 @@ final class RecordingEngine {
     // timestamp or stop establishes its real VFR duration. No frame history.
     private struct PendingFrame { let sourceUs: Int64; let pixel: CVPixelBuffer }
     private var pending: [String: PendingFrame] = [:]
+    private struct AdmissionLoss { let startUs: Int64; let reason: String }
+    private var admissionLosses: [String: AdmissionLoss] = [:]
+    private var initialImages = Set<String>()
+    var missingInitialImages: [String] { ids.filter { !initialImages.contains($0) } }
     private var frameCounts: [String: Int64] = [:]
     private var encoderFailures: [String: String] = [:]
     private var terminals = Set<String>()
     private var filter: PointerFilter
+    private let pointerClock: VerifiedPointerClock?
     private(set) var droppedFrames: Int64 = 0, acceptedFrames: Int64 = 0
     private(set) var reason: String?
     var state: RecordingState { session.state }
     var result: RecordingManifest? { session.result }
 
-    init(targets: [RecordingTarget], takeId: String, journal: EventJournal, writers: [String: any VideoWriting], options: MacRecordingOptions) throws {
+    init(targets: [RecordingTarget], takeId: String, journal: EventJournal, writers: [String: any VideoWriting], options: MacRecordingOptions, pointerClock: VerifiedPointerClock? = nil) throws {
         session = try RecordingSession(takeId: takeId, targets: targets, journal: journal)
         ids = targets.map(\.slot.id)
         try requireNative(Set(writers.keys) == Set(ids), "Missing selected encoder")
-        self.writers = writers; filter = PointerFilter(options: options)
+        self.writers = writers; self.pointerClock = pointerClock; filter = PointerFilter(options: options, clock: pointerClock)
     }
     func start() throws {
+        guard pointerClock != nil else { throw MacRecordingFailure.pointerClockUnverified }
         try requireNative(!requested && !stopped && state == .preparing, "Recorder is single-use")
         requested = true
     }
@@ -85,7 +92,9 @@ final class RecordingEngine {
                 try requireNative(sourceUs > previous.sourceUs, "Reversed or duplicate source frame")
                 try encodePending(id, endingUs: sourceUs)
             }
+            try closeAdmissionLoss(id, endUs: sourceUs)
             pending[id] = PendingFrame(sourceUs: sourceUs, pixel: pixel)
+            initialImages.insert(id)
         } catch {
             encoderFailures[id] = String(describing: error)
             try fail(id, nowUs: sourceUs, reason: String(describing: error))
@@ -107,19 +116,36 @@ final class RecordingEngine {
     }
     private func drain(nowUs: Int64) {
         for id in ids {
-            do { try encodePending(id, endingUs: nowUs) }
-            catch { encoderFailures[id] = String(describing: error) }
+            do {
+                try encodePending(id, endingUs: nowUs)
+                try closeAdmissionLoss(id, endUs: nowUs)
+            } catch { encoderFailures[id] = String(describing: error) }
         }
     }
     func drop(_ id: String, sourceUs: Int64, generation: UInt64, reason: String) throws {
         guard generation == self.generation && state == .recording && !stopped else { return }
-        try session.reportGap(monitorSlotId: id, startTicks: sourceUs, endTicks: addNative(sourceUs, 33_333), kind: .backpressure, reason: reason)
+        guard let epochHostUs, sourceUs >= epochHostUs else { return }
+        try requireNative(ids.contains(id), "Unknown admission source")
+        // A dropped changed image ends knowledge of the preceding pixels now,
+        // regardless of the requested frame rate or subsequent Idle callbacks.
+        try encodePending(id, endingUs: sourceUs)
+        try closeAdmissionLoss(id, endUs: sourceUs)
+        admissionLosses[id] = AdmissionLoss(startUs: sourceUs, reason: reason)
         droppedFrames = try addNative(droppedFrames, 1)
+    }
+    private func closeAdmissionLoss(_ id: String, endUs: Int64) throws {
+        guard let loss = admissionLosses[id] else { return }
+        try requireNative(endUs >= loss.startUs, "Reversed admission-loss timestamp")
+        if endUs > loss.startUs {
+            try session.reportGap(monitorSlotId: id, startTicks: loss.startUs, endTicks: endUs, kind: .backpressure, reason: loss.reason)
+        }
+        admissionLosses.removeValue(forKey: id)
     }
     func pointer(_ sample: MacPointerSample, nowUs: Int64, generation: UInt64) throws {
         guard generation == self.generation && state == .recording && !stopped else { return }
-        if let epochHostUs, sample.timestampNs > 0, sample.timestampNs / 1_000 < UInt64(epochHostUs) { return }
         do {
+            guard let pointerClock else { throw MacRecordingFailure.pointerClockUnverified }
+            if let epochHostUs, sample.timestampNs > 0, try pointerClock.hostUs(timestampNs: sample.timestampNs) < epochHostUs { return }
             if let event = try filter.receive(sample, nowUs: nowUs) { try session.receive(event: event) }
         } catch {
             try fail(ids[0], nowUs: nowUs, reason: String(describing: error))

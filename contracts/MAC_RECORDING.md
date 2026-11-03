@@ -3,7 +3,11 @@
 `MotionClickerMacRecording` is a macOS26+ Swift library consuming
 [RECORDING.md](RECORDING.md). It implements selected-display ScreenCaptureKit
 streams, H.264 MP4 encoding, and a listen-only pointer event tap. No app UI calls
-it yet. It is not the both-platform Record/Save/Open acceptance milestone.
+it yet. **Production preparation currently fails with `pointerClockUnverified`:**
+an authoritative CGEvent-to-mach source anchor has not been established. The
+components and synthetic pipeline exist, but recording is not enabled by an
+unverified clock hypothesis. This is not the both-platform Record/Save/Open
+acceptance milestone.
 
 ## API for the future UI
 
@@ -12,6 +16,8 @@ let recorder = MacRecordingController(options: MacRecordingOptions(
     ownInjectedTag: 0x4d434c49434b, // existing MacInput.tag, supplied by caller
     isControl: classifyControlSample // caller supplies a fast @Sendable classifier
 ))
+// Current capability: MacRecordingController.pointerClockStatus == .unverified.
+// prepare throws .pointerClockUnverified before privacy preflight or storage.
 let prepared = try await recorder.prepare(targets: targets, root: bundleRoot, takeId: takeID)
 try await recorder.start() // deliberate user action; real capture starts here
 let progress = await recorder.snapshot()
@@ -21,7 +27,12 @@ let result = try await recorder.project() // optional whole-event projection
 ```
 
 The initializer is inert. `prepare(targets: [RecordingTarget], root: URL,
-takeId: String) async throws -> MacRecordingPreparation` checks permission
+takeId: String) async throws -> MacRecordingPreparation` first requires an
+internally verified pointer clock. No live verifier is available, so the public
+`pointerClockStatus` is `.unverified` and preparation throws the typed
+`.pointerClockUnverified` error before OS preflight/storage. There is no public
+Boolean, anchor, or unsafe override to bypass verification. Permission grants
+cannot fix this missing capability. Once a verified provider exists, it checks permission
 preflight, freezes exact selected display IDs/geometry/pixel sizes and creates
 owned staging/writers. It neither listens to input nor captures pixels nor
 requests permissions. Errors `.screenRecordingPermissionMissing` and
@@ -30,7 +41,13 @@ Settings window is opened. It may leave diagnostic staging on an encoder or
 storage failure; `recovery() async -> StoreRecovery?` exposes it.
 
 `start() async throws` resolves only when every stream and the pointer tap is
-ready, then establishes one common epoch. Canceling the start task requests
+ready, then establishes one common epoch. This readiness barrier alone does not
+promise a post-epoch image from a static source. The original10-second start
+deadline remains active until every selected source supplies a genuine
+post-epoch image. An early source that sent its sole image before the barrier
+and then supplies only Idle is interrupted with the missing source IDs at that
+deadline; the old image is never relabeled. No supported guaranteed post-barrier
+refresh protocol has yet been established. Canceling the start task requests
 stop. The controller is single-use; another take requires another instance.
 `stop(reason: String? = nil) async throws -> MacRecordingCompletion?` is
 idempotent; nil means stopped before an epoch. `MacRecordingCompletion` contains
@@ -73,8 +90,12 @@ handoffs. The engine retains at most1 pending pixel buffer per selected display.
 The next source timestamp or stop determines its exact VFR duration, then an
 explicitly timed CMSampleBuffer is appended. Session metadata advances only after
 that append succeeds. Idle does not invent loss or synthetic frames. Rejected
-encoder/admission work increments dropped count and journals backpressure;
-manifest previews and complete gap journals retain the portable64-entry policy.
+encoder/admission work increments dropped count and journals backpressure.
+An admission loss ends the preceding valid image at the dropped source time and
+retains one unresolved interval per stream. Idle cannot close it. The next actual
+image or stop closes it; a subsequent drop closes the previous interval and opens
+another, preserving every dropped update's evidence without an unbounded list.
+Manifest previews and complete gap journals retain the portable64-entry policy.
 AVFoundation's internal buffers are platform-owned; measured ten-minute resident
 memory/storage acceptance remains open.
 
@@ -83,6 +104,18 @@ in the manifest; rejected frames do not establish an origin. Source spacing is
 preserved. Pending static frames receive real durations through stop. Tests check
 coded sample durations, not merely movie/track edit-list duration: `endSession`
 alone can create empty edit markers rather than extend an image.
+
+The raw-H.264 AVAssetWriter path also stretches an earlier image across sparse
+PTS gaps even when supplied an explicit short duration. Actual synthetic
+readback demonstrated100ms becoming4s. Direct EmptyMedia marker attempts caused
+native synthetic test aborts and were removed. Until a supported muxing path is
+verified, `videoDiscontinuityUnsupported` rejects a gap greater than1microsecond
+before appending the later image; the engine marks that writer failed and the
+take interrupted, keeping full loss intervals. A loss lasting to stop preserves
+only the known-valid prefix and its full trailing gap. One microsecond allows
+integer timestamp rounding, not a claim of missing image continuity. No black
+placeholder or duplicated frame is invented. Continuing native video after a
+loss remains unsupported; explicit failure is preferable to false footage.
 
 Each generation accepts readiness once and rejects late callbacks after stopping.
 Native readiness, shutdown and encoder finalization have10-second callback
@@ -124,12 +157,32 @@ Primary installed macOS26.2 SDK evidence:
 Mach ticks are converted with UInt64 full-width rational arithmetic and checked
 Int64 results, never Double; the portable anchor is `(0,0,1000000)` over the
 converted absolute microseconds. All displays use the same host epoch.
-CGEvent's original nanoseconds are preserved and divided by1000. Every accepted
-physical event must be neither future-dated nor more than1second behind current
-mach-absolute host time, otherwise capture fails. Arrival time is a domain/delay
-check only and never replaces the source timestamp. This bounds a domain
-hypothesis; it does **not** prove physical event/video alignment within50ms.
-The earlier unposted-empty-event timestamp0 probe remains inconclusive.
+CGEvent's original nanoseconds are retained. Conversion now requires a verified
+`ClockAnchor` (nanosecond source scale) and uses the portable exact integer mapper.
+The one-second delivery-age check is supplemental only; it cannot authorize an
+anchor. A500ms wrong-domain offset within that window is rejected when no
+verified mapping exists. Tests supply internal literal fixture anchors known by
+construction; these are not native evidence and cannot enable the public path.
+
+The [CGEventTimestamp documentation](https://developer.apple.com/documentation/coregraphics/cgeventtimestamp)
+establishes startup-relative nanoseconds but not an explicit mach-absolute
+mapping. [NSEvent.timestamp](https://developer.apple.com/documentation/appkit/nsevent/timestamp)
+links to awake system uptime, but does not prove CGEvent clock conversion.
+[Native event age](https://developer.apple.com/documentation/coregraphics/cgeventsource/secondssincelasteventtype(_:eventtype:))
+and [per-type counters](https://developer.apple.com/documentation/coregraphics/cgeventsource/counterforeventtype(_:eventtype:))
+identify the latest source age and WindowServer counts, respectively; they do
+not document an atomic identity/order relationship to the particular event in a
+tap callback. Stable count brackets alone cannot resolve coalescing, backlog,
+missed events, or pre/post-counter tap ordering. Subtracting an ambiguous latest
+age from delivery time is not a verified anchor. Both unposted constructor
+probes returned0 or were inconclusive and supply no proof.
+
+To enable production, obtain authoritative source-domain evidence or implement a
+controlled verifier with a proven event identity/age pairing, explicit clock
+rate/origin/sleep semantics, bounded uncertainty and fail-closed ambiguity
+handling. Consent runtime validation then checks real pointer/video alignment;
+<=50ms remains an unmeasured physical goal. The current unsupported status is a
+remaining product capability, not a completed working-recording milestone.
 
 Sleep/wake/session-resign and display-change notifications interrupt capture.
 A500ms lifecycle poll checks permission revocation, exact topology and divergence

@@ -1,6 +1,10 @@
 import XCTest
 import CoreMedia
+import MotionClickerRecording
 @testable import MotionClickerMacRecording
+
+// A literal fixture anchor is known by construction; it is not native evidence.
+let syntheticPointerClock = VerifiedPointerClock(anchor: ClockAnchor(sourceAnchorTicks: 0, hostAnchorUs: 0, ticksPerSecond: 1_000_000_000))
 
 final class NativeTimingTests: XCTestCase {
     func testLargeRationalMachConversionAndOverflow() throws {
@@ -33,10 +37,19 @@ final class NativeTimingTests: XCTestCase {
         XCTAssertThrowsError(try guardClock.check(differenceUs: 6_000_000))
         XCTAssertThrowsError(try guardClock.check(differenceUs: 4_000_000))
     }
+    func testVerifiedFixtureAnchorMapsSourceOffsetWithoutUsingDeliveryTime() throws {
+        let clock = VerifiedPointerClock(anchor: ClockAnchor(sourceAnchorTicks: 1_000_000_000, hostAnchorUs: 1_500_000, ticksPerSecond: 1_000_000_000))
+        XCTAssertEqual(try NativeTime.pointerUs(timestampNs: 1_500_000_000, nowUs: 2_000_001, clock: clock), 2_000_000)
+        XCTAssertEqual(try NativeTime.pointerUs(timestampNs: 1_500_000_000, nowUs: 2_500_000, clock: clock), 2_000_000)
+    }
+    func testInWindowWrongDomainIsRejectedWithoutVerifiedAnchor() {
+        // Delivery age500ms used to pass despite no source-domain evidence.
+        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 1_500_000_000, nowUs: 2_000_000))
+    }
     func testPointerClockFailsClosedWithoutReplacingSourceTime() throws {
-        XCTAssertEqual(try NativeTime.pointerUs(timestampNs: 9_007_199_254_740_993, nowUs: 9_007_199_254_741), 9_007_199_254_740)
-        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 0, nowUs: 100))
-        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 2_000_000_000, nowUs: 1_000_000))
-        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 1, nowUs: 5_000_000))
+        XCTAssertEqual(try NativeTime.pointerUs(timestampNs: 9_007_199_254_740_993, nowUs: 9_007_199_254_741, clock: syntheticPointerClock), 9_007_199_254_740)
+        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 0, nowUs: 100, clock: syntheticPointerClock))
+        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 2_000_000_000, nowUs: 1_000_000, clock: syntheticPointerClock))
+        XCTAssertThrowsError(try NativeTime.pointerUs(timestampNs: 1, nowUs: 5_000_000, clock: syntheticPointerClock))
     }
 }

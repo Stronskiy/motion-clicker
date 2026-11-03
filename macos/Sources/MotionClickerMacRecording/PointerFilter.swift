@@ -37,9 +37,10 @@ public struct MacPointerSample: Sendable {
 }
 struct PointerFilter {
     let options: MacRecordingOptions
+    private let clock: VerifiedPointerClock?
     private var controlButton: MouseButton?
     private var recordedButton: MouseButton?
-    init(options: MacRecordingOptions) { self.options = options }
+    init(options: MacRecordingOptions, clock: VerifiedPointerClock? = nil) { self.options = options; self.clock = clock }
     mutating func receive(_ sample: MacPointerSample, nowUs: Int64) throws -> CapturedPointerEvent? {
         if sample.sourceTag == options.ownInjectedTag { return nil }
         if let controlButton {
@@ -54,7 +55,7 @@ struct PointerFilter {
             if sample.kind == .buttonDown { controlButton = sample.button }
             return nil
         }
-        let time = try NativeTime.pointerUs(timestampNs: sample.timestampNs, nowUs: nowUs)
+        let time = try NativeTime.pointerUs(timestampNs: sample.timestampNs, nowUs: nowUs, clock: clock)
         // Core remains the authority for repeated/mismatched physical ownership.
         if sample.kind == .buttonDown { recordedButton = sample.button }
         if sample.kind == .buttonUp { recordedButton = nil }

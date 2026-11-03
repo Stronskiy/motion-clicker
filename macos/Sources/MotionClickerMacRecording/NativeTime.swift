@@ -15,6 +15,17 @@ func subtractNative(_ a: Int64, _ b: Int64) throws -> Int64 {
 }
 /// Uses mach_absolute_time (CoreMedia host clock), never mach_continuous_time.
 /// Source ticks are converted to integer microseconds before the portable clock mapper.
+/// Internal capability only: supplied by a source-specific verified anchor
+/// provider, never by a public Bool or callback arrival. Live provider is absent.
+struct VerifiedPointerClock {
+    let anchor: ClockAnchor
+    func hostUs(timestampNs: UInt64) throws -> Int64 {
+        try requireNative(timestampNs > 0 && timestampNs <= UInt64(Int64.max), "Invalid pointer source timestamp")
+        return try MediaClockMapper(sourceAnchorTicks: anchor.sourceAnchorTicks, hostAnchorUs: anchor.hostAnchorUs,
+                                    ticksPerSecond: anchor.ticksPerSecond, epochHostUs: 0).map(sourceTicks: Int64(timestampNs))
+    }
+}
+
 enum NativeTime {
     static func microseconds(ticks: UInt64, numerator: UInt32, denominator: UInt32) throws -> Int64 {
         try requireNative(denominator > 0 && numerator > 0, "Invalid mach timebase")
@@ -30,14 +41,13 @@ enum NativeTime {
         try requireNative(mach_timebase_info(&info) == KERN_SUCCESS, "Unavailable mach timebase")
         return try microseconds(ticks: ticks, numerator: info.numer, denominator: info.denom)
     }
-    /// CGEvent's documented startup nanoseconds are retained, NOT rebased to arrival.
-    /// Runtime guard rejects a different sleep domain or implausibly delayed event.
-    /// This guard bounds a hypothesis; physical source alignment still needs consent QA.
-    static func pointerUs(timestampNs: UInt64, nowUs: Int64) throws -> Int64 {
-        let us = timestampNs / 1_000
-        try requireNative(timestampNs > 0 && us <= UInt64(Int64.max), "Invalid pointer source clock")
-        let result = Int64(us), age = try subtractNative(nowUs, result)
-        try requireNative(age >= 0 && age <= 1_000_000, "Pointer clock domain mismatch or excessive delivery delay")
+    /// The source anchor is a required capability. Age is only a supplemental
+    /// sanity check AFTER verified source mapping, never evidence of a domain.
+    static func pointerUs(timestampNs: UInt64, nowUs: Int64, clock: VerifiedPointerClock? = nil) throws -> Int64 {
+        guard let clock else { throw MacRecordingFailure.pointerClockUnverified }
+        let result = try clock.hostUs(timestampNs: timestampNs)
+        let age = try subtractNative(nowUs, result)
+        try requireNative(age >= 0 && age <= 1_000_000, "Pointer clock mismatch or excessive delivery delay")
         return result
     }
 }

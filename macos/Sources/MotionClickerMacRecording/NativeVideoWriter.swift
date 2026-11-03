@@ -45,6 +45,11 @@ final class NativeVideoWriter: VideoWriting {
         try requireNative(!finishing && writer.status == .writing, writer.error?.localizedDescription ?? "Encoder is not writing")
         try requireNative(CVPixelBufferGetWidth(pixel) == width && CVPixelBufferGetHeight(pixel) == height && CVPixelBufferGetPixelFormatType(pixel) == kCVPixelFormatType_32BGRA, "Unexpected captured pixel format or size")
         try requireNative(stamp.ptsUs >= endUs && (count > 0 || stamp.ptsUs == 0), "Invalid encoded frame PTS")
+        // This raw-H.264 AVAssetWriter path stretches the preceding sample over
+        // sparse PTS gaps. Tested empty-marker appends abort in this path.
+        // Reject before append instead of publishing old pixels as valid footage.
+        // One microsecond accommodates integer timestamp rounding only.
+        if count > 0 && stamp.ptsUs - endUs > 1 { throw MacRecordingFailure.videoDiscontinuityUnsupported }
         let end = try addNative(stamp.ptsUs, stamp.durationUs)
         if !input.isReadyForMoreMediaData { return false }
         var format: CMVideoFormatDescription?

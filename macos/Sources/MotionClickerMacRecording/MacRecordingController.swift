@@ -3,8 +3,9 @@ import CoreVideo
 import MotionClickerRecording
 
 public enum MacRecordingFailure: Error, Sendable, Equatable {
-    case screenRecordingPermissionMissing, inputMonitoringPermissionMissing, invalidState(String)
+    case screenRecordingPermissionMissing, inputMonitoringPermissionMissing, pointerClockUnverified, videoDiscontinuityUnsupported, invalidState(String)
 }
+public enum MacPointerClockStatus: Sendable { case unverified }
 public struct MacRecordingDisplay: Sendable {
     public let monitorSlotId: String, displayId: UInt32
     public let pixelWidth: Int, pixelHeight: Int
@@ -50,11 +51,15 @@ struct RecordingDependencies {
     let writer: (URL, Int, Int) throws -> any VideoWriting
     let driver: ([RecordingTarget], [NativeDisplaySnapshot], any CaptureSink, UInt64, Int64) -> any CaptureDriving
     var timeoutSeconds: Double = 10
+    var pointerClock: VerifiedPointerClock? = nil
 }
 /// Audited queue-confinement wrapper: mutable engine/store/native handles and all
 /// continuations are accessed ONLY on owner. Callbacks transfer scalar values or
 /// synchronously borrow a frame; no Sendable conformance is added to the core.
 public final class MacRecordingController: @unchecked Sendable, CaptureSink {
+    /// No production source-specific verified CGEvent→mach anchor is available
+    /// yet. This cannot be overridden by callers or permission grants.
+    public static var pointerClockStatus: MacPointerClockStatus { .unverified }
     private let owner = DispatchQueue(label: "MotionClicker.recording.owner", qos: .userInitiated)
     private let ownerKey = DispatchSpecificKey<Bool>()
     private let options: MacRecordingOptions
@@ -91,6 +96,7 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
     public func prepare(targets: [RecordingTarget], root: URL, takeId: String) async throws -> MacRecordingPreparation {
         try await perform { c in
             try requireNative(c.engine == nil && c.store == nil && !c.ended, "Recorder already prepared")
+            guard c.dependencies.pointerClock != nil else { throw MacRecordingFailure.pointerClockUnverified }
             try c.dependencies.preflight()
             let selected = try NativeDisplaySnapshot.select(targets: targets, inventory: c.dependencies.inventory())
             let store = try RecordingStore(root: root, takeId: takeId)
@@ -100,7 +106,7 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
                 for (target, display) in zip(targets, selected) {
                     writers[target.slot.id] = try c.dependencies.writer(store.mediaFile(monitorSlotId: target.slot.id), display.pixelWidth, display.pixelHeight)
                 }
-                c.engine = try RecordingEngine(targets: targets, takeId: takeId, journal: store, writers: writers, options: c.options)
+                c.engine = try RecordingEngine(targets: targets, takeId: takeId, journal: store, writers: writers, options: c.options, pointerClock: c.dependencies.pointerClock)
                 c.driver = c.dependencies.driver(targets, selected, CaptureRelay(c), 1, c.options.ownInjectedTag)
                 let preparation = MacRecordingPreparation(displays: zip(targets, selected).map { MacRecordingDisplay(monitorSlotId: $0.slot.id, displayId: $1.id, pixelWidth: $1.pixelWidth, pixelHeight: $1.pixelHeight) })
                 c.prepared = preparation; return preparation
@@ -160,7 +166,10 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
     private func timedOut() {
         guard !ended, let engine else { return }
         if !ending {
-            do { try engine.fail(nowUs: dependencies.now(), reason: "Capture readiness timed out") } catch { finalError = error }
+            let reason = engine.state == .recording
+                ? "No post-epoch image before initialization deadline: " + engine.missingInitialImages.joined(separator: ", ")
+                : "Capture readiness timed out"
+            do { try engine.fail(nowUs: dependencies.now(), reason: reason) } catch { finalError = error }
             advance(); return
         }
         if !captureEnded {
@@ -178,7 +187,11 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
     private func advance() {
         guard let engine, !ended else { return }
         if engine.state == .recording {
-            deadline?.cancel(); startWaiter?.resume(); startWaiter = nil; return
+            // Readiness does not promise a new image from an unchanged display.
+            // Keep the original bounded deadline until each source supplies a
+            // genuine post-epoch image; never relabel a discarded earlier image.
+            if engine.missingInitialImages.isEmpty { deadline?.cancel() }
+            startWaiter?.resume(); startWaiter = nil; return
         }
         guard engine.state != .preparing else { return }
         if !ending {

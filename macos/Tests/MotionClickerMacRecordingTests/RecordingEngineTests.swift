@@ -35,7 +35,7 @@ func engineTargets() -> [RecordingTarget] {
 final class RecordingEngineTests: XCTestCase {
     func fixture() throws -> (RecordingEngine, EngineJournal, EngineWriter, EngineWriter, CVPixelBuffer) {
         let journal = EngineJournal(), a = EngineWriter(), b = EngineWriter()
-        let engine = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }))
+        let engine = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }), pointerClock: syntheticPointerClock)
         var pixel: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
         return (engine, journal, a, b, try XCTUnwrap(pixel))
@@ -51,9 +51,35 @@ final class RecordingEngineTests: XCTestCase {
         try e.writerFinished("a", terminal: a)
         try e.writerFinished("b", terminal: b)
     }
+    func testAdmissionDropThenIdleKeepsEntireUnknownIntervalAndTruncatesOldPixels() throws {
+        let (e, j, a, _, pixel) = try fixture(); try ready(e)
+        try e.frame("a", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.frame("b", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.drop("a", sourceUs: 1_100_000, generation: 1, reason: "admission")
+        try e.frame("a", sourceUs: 4_000_000, status: .idle, pixel: nil, generation: 1)
+        try e.stop(nowUs: 6_000_000)
+        XCTAssertEqual(a.stamps.count, 1)
+        XCTAssertEqual(a.stamps.first?.durationUs, 100_000)
+        XCTAssertEqual(j.gaps.filter { $0.monitorSlotId == "a" }.map(\.gap), [RecordingGap(startUs: 100_000, endUs: 5_000_000, kind: .backpressure, reason: "admission")])
+        XCTAssertEqual(e.droppedFrames, 1)
+    }
+    func testAdmissionDropThenLateImageDoesNotExtendEarlierValidFrameAcrossGap() throws {
+        let (e, j, a, _, pixel) = try fixture(); try ready(e)
+        try e.frame("a", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.drop("a", sourceUs: 1_100_000, generation: 1, reason: "first")
+        try e.drop("a", sourceUs: 1_500_000, generation: 1, reason: "second")
+        try e.frame("a", sourceUs: 5_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.stop(nowUs: 6_000_000)
+        XCTAssertEqual(a.stamps.map(\.ptsUs), [0, 4_000_000])
+        XCTAssertEqual(a.stamps.map(\.durationUs), [100_000, 1_000_000])
+        XCTAssertEqual(j.gaps.filter { $0.monitorSlotId == "a" }.map(\.gap), [
+            RecordingGap(startUs: 100_000, endUs: 500_000, kind: .backpressure, reason: "first"),
+            RecordingGap(startUs: 500_000, endUs: 4_000_000, kind: .backpressure, reason: "second")])
+        XCTAssertEqual(e.droppedFrames, 2)
+    }
     func testPreEpochPointerCannotPoisonControlGestureClassification() throws {
         let journal = EngineJournal(), a = EngineWriter(), b = EngineWriter()
-        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 10 }))
+        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 10 }), pointerClock: syntheticPointerClock)
         try ready(e)
         try e.pointer(MacPointerSample(timestampNs: 999_999_000, position: Point(x: 20, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
         try e.pointer(MacPointerSample(timestampNs: 1_000_000_000, position: Point(x: 1, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
