@@ -63,4 +63,15 @@ public sealed class RecordingStoreTests : IDisposable
         foreach(var s in new[]{first,second}){s.Append(Record());File.WriteAllText(s.MediaFile("left"),"synthetic-media");}
         var path=first.Publish(Manifest());var before=File.ReadAllBytes(path);Assert.ThrowsAny<Exception>(()=>second.Publish(Manifest()));Assert.Equal(before,File.ReadAllBytes(path));
     }
+
+    [Fact] public void SessionToPublishedInterruptedTakeKeepsRawHoldOnly()
+    {
+        var r=Root();using var store=new RecordingStore(r,"take");var s=new RecordingSession("take",RecordingSessionTests.Targets(),store);
+        foreach(var id in new[]{"left","right"}){s.SourceReady(id,new(0,1000000,1000000));File.WriteAllText(store.MediaFile(id),"synthetic-media");}
+        s.EventTapReady();s.Begin(1000000);RecordingSessionTests.Frames(s);s.Receive(new(1000001,new(1,1),ActionKind.ButtonDown,MouseButton.Left));
+        RecordingSessionTests.Finish(s);var p=s.Project();var path=store.Publish(p.Manifest);Assert.Empty(p.Events);Assert.Equal(RecordingState.Interrupted,p.Manifest.State);
+        Assert.Equal(RecordingJson.Serialize(p.Manifest),RecordingJson.Serialize(RecordingJson.Deserialize<RecordingManifest>(File.ReadAllText(path))));
+        var records=new List<RawPointerRecord>();store.Read(records.Add);Assert.Single(records);Assert.Equal(ActionKind.ButtonDown,records[0].Event.Kind);
+        Assert.Equal(p.Manifest.IncompleteGroupIds[0],records[0].AtomicGroupId);
+    }
 }

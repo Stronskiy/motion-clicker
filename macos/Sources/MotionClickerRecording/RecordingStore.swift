@@ -32,6 +32,9 @@ public final class RecordingStore: EventJournal {
     }
     deinit { try? handle?.close() }
     private static func id(_ id: String) throws {
+        let stem = id.split(separator: ".", omittingEmptySubsequences: false).first.map(String.init)?.uppercased() ?? ""
+        let reserved = ["CON", "PRN", "AUX", "NUL"] + (1...9).flatMap { ["COM\($0)", "LPT\($0)"] }
+        try recordingRequire(!id.hasSuffix(".") && !reserved.contains(stem), "Nonportable filesystem ID")
         try recordingRequire(id.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",options: .regularExpression) != nil, "Invalid capture ID")
     }
     private static func exists(_ url: URL) -> Bool { (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil }
@@ -63,6 +66,15 @@ public final class RecordingStore: EventJournal {
                     try recordingRequire((attrs[.referenceCount] as? NSNumber)?.intValue == 1, "Hard-linked capture file")
                 }
             }
+        }
+    }
+    private func checkTree(_ url: URL) throws {
+        try check(url)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let type = attributes[.type] as? FileAttributeType
+        try recordingRequire(type == .typeDirectory || type == .typeRegular, "Unsupported capture file type")
+        if type == .typeDirectory {
+            for child in try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) { try checkTree(child) }
         }
     }
     private func ensureDirectory(_ url: URL) throws {
@@ -124,7 +136,7 @@ public final class RecordingStore: EventJournal {
             try recordingRequire(s.relativePath == "media/\(takeId)/\(s.monitorSlotId).mp4", "Unsafe stream media path")
             _ = try MediaClockMapper(sourceAnchorTicks: s.clock.sourceAnchorTicks,hostAnchorUs: s.clock.hostAnchorUs,ticksPerSecond: s.clock.ticksPerSecond,epochHostUs: m.epochHostUs)
             try recordingRequire(s.frameCount >= 0 && s.encodedDurationUs >= 0, "Invalid media counters")
-            if let zero = s.mediaTimeZeroUs { try recordingRequire(zero >= 0 && recordingAdd(zero, s.encodedDurationUs) <= m.durationUs, "Media beyond take") }
+            if let zero = s.mediaTimeZeroUs { try recordingRequire(zero >= 0 && (s.writerStatus == .failed || recordingAdd(zero, s.encodedDurationUs) <= m.durationUs), "Media beyond take") }
             for gap in s.gaps { try recordingRequire(gap.startUs >= 0 && gap.endUs >= gap.startUs && gap.endUs <= m.durationUs, "Invalid gap range") }
             if s.writerStatus == .succeeded {
                 try recordingRequire(s.frameCount > 0 && s.encodedDurationUs > 0 && s.mediaTimeZeroUs != nil, "Empty successful media")
@@ -155,6 +167,8 @@ public final class RecordingStore: EventJournal {
         try recordingRequire(!closed && !poisoned, "Capture store failed or closed")
         try check(staging); try check(media); try check(metadata)
         try recordingRequire(!Self.exists(metadata) && (mediaPublished || !Self.exists(media)), "Publish collision")
+        try checkTree(mediaPublished ? media : staging.appendingPathComponent("media"))
+        try checkTree(staging.appendingPathComponent("metadata"))
         try validate(manifest); try flush()
         let staged = staging.appendingPathComponent("metadata/manifest.json")
         if frozenManifest == nil {
@@ -166,10 +180,10 @@ public final class RecordingStore: EventJournal {
         }
         try handle?.close(); handle = nil
         if !mediaPublished {
-            try fault(.moveMedia); try check(media); try check(staging.appendingPathComponent("media"))
+            try fault(.moveMedia); try check(media); try checkTree(staging.appendingPathComponent("media"))
             try Self.moveExclusive(staging.appendingPathComponent("media"),media); mediaPublished = true
         }
-        try fault(.publishManifest); try check(metadata); try check(staging.appendingPathComponent("metadata"))
+        try fault(.publishManifest); try check(metadata); try checkTree(staging.appendingPathComponent("metadata"))
         try Self.moveExclusive(staging.appendingPathComponent("metadata"),metadata); manifestPublished = true
         return metadata.appendingPathComponent("manifest.json")
     }

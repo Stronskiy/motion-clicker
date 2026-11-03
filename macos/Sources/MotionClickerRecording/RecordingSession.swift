@@ -193,15 +193,16 @@ public final class RecordingSession {
         var media: [StreamManifest] = []
         for target in targets {
             let id = target.slot.id, s = streams[id]!, t = s.terminal!
-            let successful = t.status == .succeeded && s.count > 0 && t.duration >= s.end && s.zero != nil
-            var gaps = s.gaps
-            if !successful { gaps.append(RecordingGap(startUs: duration,endUs: duration,kind: .encoderFailure,reason: t.reason ?? "Empty or incomplete writer")) }
-            if !gaps.isEmpty { warnings.append("Stream \(id) contains gaps or failures") }
+            var successful = t.status == .succeeded && s.count > 0 && t.duration >= s.end && s.zero != nil
+            var failure = t.reason
             if let zero = s.zero {
                 do { duration = max(duration, try recordingAdd(zero, t.duration)) }
-                catch { interrupt("Writer duration overflow", failed: true) }
+                catch { successful = false; failure = "Writer duration overflow"; interrupt(failure!, failed: true) }
             }
-            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: gaps,writerStatus: successful ? .succeeded : .failed,failureReason: successful ? s.sourceFailure : t.reason ?? "Empty or incomplete writer"))
+            var gaps = s.gaps
+            if !successful { gaps.append(RecordingGap(startUs: duration,endUs: duration,kind: .encoderFailure,reason: failure ?? "Empty or incomplete writer")) }
+            if !gaps.isEmpty { warnings.append("Stream \(id) contains gaps or failures") }
+            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: gaps,writerStatus: successful ? .succeeded : .failed,failureReason: successful ? s.sourceFailure : failure ?? "Empty or incomplete writer"))
         }
         state = terminalState
         result = RecordingManifest(manifestVersion: 1,takeId: takeId,state: state,epochHostUs: epoch,durationUs: duration,targets: targets.map(\.slot),streams: media,rawEventCount: count,incompleteGroupIds: incomplete.sorted(),warnings: warnings,reason: reason)

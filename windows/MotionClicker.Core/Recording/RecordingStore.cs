@@ -35,7 +35,12 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         var current=new DirectoryInfo(candidate);
         return current.Attributes.HasFlag(FileAttributes.ReparsePoint)?current.ResolveLinkTarget(true)?.FullName??throw new RecordingException("Unresolved directory link"):candidate;
     }
-    private static void Id(string id)=>Require(Regex.IsMatch(id,"\\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\z",RegexOptions.CultureInvariant),"Invalid capture ID");
+    private static void Id(string id)
+    {
+        var stem=id.Split('.')[0].ToUpperInvariant();
+        Require(!id.EndsWith('.') && !Regex.IsMatch(stem,@"\A(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])\z",RegexOptions.CultureInvariant),"Nonportable filesystem ID");
+        Require(Regex.IsMatch(id,@"\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z",RegexOptions.CultureInvariant),"Invalid capture ID");
+    }
     private static bool Exists(string path)
     {
         try{_=File.GetAttributes(path);return true;}catch(FileNotFoundException){return false;}catch(DirectoryNotFoundException){return false;}
@@ -54,6 +59,12 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             }
             cursor=Path.Combine(cursor,part);if(Exists(cursor))Require(!File.GetAttributes(cursor).HasFlag(FileAttributes.ReparsePoint),"Reparse point in capture path");
         }
+    }
+    private void CheckTree(string path)
+    {
+        Check(path);
+        if(File.GetAttributes(path).HasFlag(FileAttributes.Directory))
+            foreach(var child in Directory.EnumerateFileSystemEntries(path))CheckTree(child);
     }
     private void EnsureDirectory(string path)
     {
@@ -108,7 +119,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             Require(s.RelativePath==$"media/{takeId}/{s.MonitorSlotId}.mp4","Unsafe stream media path");
             _=new MediaClockMapper(s.Clock.SourceAnchorTicks,s.Clock.HostAnchorUs,s.Clock.TicksPerSecond,m.EpochHostUs);
             Require(s.FrameCount>=0&&s.EncodedDurationUs>=0,"Invalid media counters");
-            if(s.MediaTimeZeroUs is long zero)Require(zero>=0&&checked(zero+s.EncodedDurationUs)<=m.DurationUs,"Media beyond take");
+            if(s.MediaTimeZeroUs is long zero)Require(zero>=0&&(s.WriterStatus==WriterStatus.Failed||checked(zero+s.EncodedDurationUs)<=m.DurationUs),"Media beyond take");
             foreach(var gap in s.Gaps)Require(gap.StartUs>=0&&gap.EndUs>=gap.StartUs&&gap.EndUs<=m.DurationUs&&Enum.IsDefined(gap.Kind),"Invalid gap range");
             Require(Enum.IsDefined(s.WriterStatus),"Invalid writer status");
             if(s.WriterStatus==WriterStatus.Succeeded)
@@ -137,6 +148,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         var text=RecordingJson.Serialize(manifest);if(frozenManifest is not null)Require(frozenManifest==text,"Conflicting publication retry");
         if(manifestPublished)return Path.Combine(metadata,"manifest.json");Require(!closed&&!poisoned,"Capture store failed or closed");
         Check(staging);Check(media);Check(metadata);Require(!Exists(metadata)&&(mediaPublished||!Exists(media)),"Publish collision");
+        CheckTree(mediaPublished?media:Path.Combine(staging,"media"));CheckTree(Path.Combine(staging,"metadata"));
         Validate(manifest);Flush();var staged=Path.Combine(staging,"metadata","manifest.json");
         if(frozenManifest is null)
         {
@@ -146,8 +158,8 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             frozenManifest=text;
         }
         handle?.Dispose();handle=null;
-        if(!mediaPublished){fault(StoreOperation.MoveMedia);Check(media);Check(Path.Combine(staging,"media"));Directory.Move(Path.Combine(staging,"media"),media);mediaPublished=true;}
-        fault(StoreOperation.PublishManifest);Check(metadata);Check(Path.Combine(staging,"metadata"));Directory.Move(Path.Combine(staging,"metadata"),metadata);manifestPublished=true;
+        if(!mediaPublished){fault(StoreOperation.MoveMedia);Check(media);CheckTree(Path.Combine(staging,"media"));Directory.Move(Path.Combine(staging,"media"),media);mediaPublished=true;}
+        fault(StoreOperation.PublishManifest);Check(metadata);CheckTree(Path.Combine(staging,"metadata"));Directory.Move(Path.Combine(staging,"metadata"),metadata);manifestPublished=true;
         return Path.Combine(metadata,"manifest.json");
     }
     public void Dispose(){handle?.Dispose();handle=null;closed=true;}

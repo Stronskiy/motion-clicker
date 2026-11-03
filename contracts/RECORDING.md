@@ -30,6 +30,10 @@ Swift names below use lowerCamelCase; C# members/methods use PascalCase and
 Swift value initializers and C# record constructors take listed fields in order.
 No constructor defaults except explicitly optional fields (`= nil` / `= null`).
 RuntimeDisplay itself is not Codable; RecordingTarget is a runtime snapshot.
+Swift uses JSONEncoder/JSONDecoder. C# uses `RecordingJson.Serialize<T>(value)`,
+`RecordingJson.Deserialize<T>(string)` and read-only `RecordingJson.Options`,
+which extend ProjectJson codecs without changing the project domain codec.
+The EventJournal supplied to a new session must be fresh and empty.
 
 | Type | Fields / values |
 |---|---|
@@ -49,7 +53,8 @@ RuntimeDisplay itself is not Codable; RecordingTarget is a runtime snapshot.
 
 Recording failures throw Swift `RecordingError(message: String)` or C#
 `RecordingException(string message)`. I/O exceptions retain their native cause.
-Messages are diagnostics, not cross-platform equality contracts.
+Checked C# arithmetic may also throw OverflowException. Messages are diagnostics,
+not cross-platform equality contracts.
 
 ## Session API
 
@@ -81,7 +86,8 @@ equal mediaTimeZeroUs + encodedTimeUs (within one microsecond for native clock
 rounding); adapters must preserve source timing in encoded PTS. Positive frame
 durations/count and writer duration are checked. Native frame arrival order does
 not define event order. Pre-epoch frames are discarded before encoder metadata.
-Final writer duration must cover accepted frame ends. No frame payloads or frame
+Final writer duration must cover accepted frame ends. A duration whose take end
+overflows is retained as failed-writer diagnostic metadata, never successful media. No frame payloads or frame
 arrays are retained. Gaps are explicit metadata; static/VFR spacing is not loss.
 
 Pointer coordinates map proportionally from selected NativeBounds to frozen
@@ -121,7 +127,10 @@ conflicting manifest is rejected. `close()` (C#: Dispose) closes journal handles
 
 Bundle root must already be an ordinary directory; resolve ancestor aliases to
 one canonical root, reject a symlink root, reject links/reparse points within
-all used paths, case-folded collisions, invalid IDs, existing target take/media.
+all used paths, case-folded collisions, invalid IDs, existing target take/media. Filesystem IDs
+also reject trailing periods and Windows device stems CON/PRN/AUX/NUL/COM1..9/
+LPT1..9 (including extensions) on both platforms. Entire staged trees are checked
+before publication, including files not listed as successful streams.
 Do not allow concurrent mutation of the bundle by external processes while a
 store owns staging; containment is revalidated before each operation, but this
 portable layer is not a hostile-process filesystem sandbox. No other writer may
@@ -129,7 +138,7 @@ edit this store's files. No prior project.json or published file is opened for
 writing. All staging is on the destination filesystem.
 
 Store owns only `.capture-<uuid>/media`, `.capture-<uuid>/metadata/events.jsonl`
-and `.capture-<uuid>/metadata/manifest.json`. Raw UTF-8 JSONL is streamed and
+and `.capture-<uuid>/metadata/manifest.json` (plus a private Windows ownership marker). Raw UTF-8 JSONL is streamed and
 flushed durably. `publish` validates terminal manifest, ID, exact stream paths,
 nonempty successful media files, journal count, and duration. It flushes, writes
 and flushes the manifest in staging, then atomically moves the uniquely named

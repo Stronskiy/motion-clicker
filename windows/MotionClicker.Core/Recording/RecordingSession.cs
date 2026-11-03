@@ -177,10 +177,11 @@ public sealed class RecordingSession
         {
             var id=target.Slot.Id;var s=streams[id];var t=s.Terminal!;
             var successful=t.Status==WriterStatus.Succeeded&&s.Count>0&&t.Duration>=s.End&&s.Zero is not null;
-            var gaps=new List<RecordingGap>(s.Gaps);if(!successful)gaps.Add(new(duration,duration,GapKind.EncoderFailure,t.Reason??"Empty or incomplete writer"));
+            var failure=t.Reason;
+            if(s.Zero is long zero){try{duration=Math.Max(duration,checked(zero+t.Duration));}catch(OverflowException){successful=false;failure="Writer duration overflow";Interrupt(failure,true);}}
+            var gaps=new List<RecordingGap>(s.Gaps);if(!successful)gaps.Add(new(duration,duration,GapKind.EncoderFailure,failure??"Empty or incomplete writer"));
             if(gaps.Count>0)warnings.Add($"Stream {id} contains gaps or failures");
-            if(s.Zero is long zero){try{duration=Math.Max(duration,checked(zero+t.Duration));}catch(OverflowException){Interrupt("Writer duration overflow",true);}}
-            media.Add(new(id,$"media/{takeId}/{id}.mp4",s.Clock!,s.Zero,t.Duration,s.Count,gaps.ToArray(),successful?WriterStatus.Succeeded:WriterStatus.Failed,successful?s.SourceFailure:t.Reason??"Empty or incomplete writer"));
+            media.Add(new(id,$"media/{takeId}/{id}.mp4",s.Clock!,s.Zero,t.Duration,s.Count,gaps.ToArray(),successful?WriterStatus.Succeeded:WriterStatus.Failed,successful?s.SourceFailure:failure??"Empty or incomplete writer"));
         }
         State=terminalState;result=new(1,takeId,State,epoch,duration,targets.Select(t=>t.Slot).ToArray(),media.ToArray(),count,incomplete.Order(StringComparer.Ordinal).ToArray(),warnings.ToArray(),reason);
     }

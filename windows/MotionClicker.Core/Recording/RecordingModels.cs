@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MotionClicker.Core.Runtime;
 
 namespace MotionClicker.Core.Recording;
@@ -13,7 +14,7 @@ public sealed record RecordingTarget(MonitorSlot Slot, RuntimeDisplay Display);
 
 public sealed record ClockAnchor(long SourceAnchorTicks, long HostAnchorUs, long TicksPerSecond);
 
-public sealed record CapturedPointerEvent(long HostTimeUs, Point NativePosition, ActionKind Kind, MouseButton? Button = null, double? DeltaX = null, double? DeltaY = null, bool IsOwnInjected = false, bool IsControl = false);
+public sealed record CapturedPointerEvent(long HostTimeUs, Point NativePosition, ActionKind Kind, MouseButton? Button = null, double? DeltaX = null, double? DeltaY = null, [property: JsonRequired] bool IsOwnInjected = false, [property: JsonRequired] bool IsControl = false);
 
 public sealed record RawPointerRecord(int Sequence, CapturedPointerEvent Event, long TimeUs, RecordedAction? Action = null, string? AtomicGroupId = null);
 
@@ -35,6 +36,7 @@ public static class RecordingJson
     private static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions(ProjectJson.Options);
+        options.Converters.Add(new StreamManifestJsonConverter());
         options.Converters.Add(new ExactEnumConverter<RecordingState>());
         options.Converters.Add(new ExactEnumConverter<GapKind>());
         options.Converters.Add(new ExactEnumConverter<WriterStatus>());
@@ -44,4 +46,21 @@ public static class RecordingJson
     }
     public static T Deserialize<T>(string json) where T : class => JsonSerializer.Deserialize<T>(json, Options) ?? throw new JsonException("Null root");
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
+}
+
+// The optional offset precedes required fields in the public constructor. A wire DTO
+// keeps it genuinely optional without changing the public API or requiring null keys.
+internal sealed class StreamManifestJsonConverter : JsonConverter<StreamManifest>
+{
+    private sealed record Wire(string MonitorSlotId,string RelativePath,ClockAnchor Clock,
+        long EncodedDurationUs,long FrameCount,RecordingGap[] Gaps,WriterStatus WriterStatus,
+        long? MediaTimeZeroUs=null,string? FailureReason=null);
+    public override StreamManifest Read(ref Utf8JsonReader reader,Type type,JsonSerializerOptions options)
+    {
+        var w=JsonSerializer.Deserialize<Wire>(ref reader,options)??throw new JsonException("Null stream");
+        return new(w.MonitorSlotId,w.RelativePath,w.Clock,w.MediaTimeZeroUs,w.EncodedDurationUs,w.FrameCount,w.Gaps,w.WriterStatus,w.FailureReason);
+    }
+    public override void Write(Utf8JsonWriter writer,StreamManifest value,JsonSerializerOptions options)=>
+        JsonSerializer.Serialize(writer,new Wire(value.MonitorSlotId,value.RelativePath,value.Clock,value.EncodedDurationUs,
+            value.FrameCount,value.Gaps,value.WriterStatus,value.MediaTimeZeroUs,value.FailureReason),options);
 }

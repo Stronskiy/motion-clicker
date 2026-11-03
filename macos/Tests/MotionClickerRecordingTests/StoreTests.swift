@@ -84,3 +84,22 @@ extension StoreTests {
         try first.close(); try second.close()
     }
 }
+
+extension StoreTests {
+    func testSessionToPublishedInterruptedTakeKeepsRawHoldOnly() throws {
+        let r = try root(), store = try RecordingStore(root: r,takeId: "take")
+        let s = try RecordingSession(takeId: "take",targets: recordingTargets(),journal: store)
+        for id in ["left","right"] {
+            try s.sourceReady(monitorSlotId: id,clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 1000000,ticksPerSecond: 1000000))
+            try Data("synthetic-media".utf8).write(to: store.mediaFile(monitorSlotId: id))
+        }
+        try s.eventTapReady();try s.begin(epochHostUs: 1000000);try frames(s)
+        try s.receive(event: CapturedPointerEvent(hostTimeUs: 1000001,nativePosition: Point(x: 1,y: 1),kind: .buttonDown,button: .left))
+        try finishSession(s);let p = try s.project();let manifestPath = try store.publish(manifest: p.manifest)
+        XCTAssertTrue(p.events.isEmpty);XCTAssertEqual(p.manifest.state,.interrupted)
+        XCTAssertEqual(try JSONDecoder().decode(RecordingManifest.self,from: Data(contentsOf: manifestPath)),p.manifest)
+        var records: [RawPointerRecord] = [];try store.read { records.append($0) }
+        XCTAssertEqual(records.count,1);XCTAssertEqual(records[0].event.kind,.buttonDown)
+        XCTAssertEqual(records[0].atomicGroupId,p.manifest.incompleteGroupIds[0]);try store.close()
+    }
+}
