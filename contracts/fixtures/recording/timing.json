@@ -1,0 +1,7 @@
+[
+ {"sourceAnchorTicks":9007199254740993,"hostAnchorUs":9007199254740993,"ticksPerSecond":10000000,"epochHostUs":9007199254740993,"sourceTicks":9007199257240993,"expectedUs":250000},
+ {"sourceAnchorTicks":0,"hostAnchorUs":1000,"ticksPerSecond":10000000,"epochHostUs":1000,"sourceTicks":-1,"expectedUs":-1},
+ {"sourceAnchorTicks":0,"hostAnchorUs":1000,"ticksPerSecond":10000000,"epochHostUs":1000,"sourceTicks":100000000000000,"expectedUs":10000000000000},
+ {"sourceAnchorTicks":100,"hostAnchorUs":2000000,"ticksPerSecond":3,"epochHostUs":1000000,"sourceTicks":98,"expectedUs":333333},
+ {"sourceAnchorTicks":0,"hostAnchorUs":0,"ticksPerSecond":1000000,"epochHostUs":0,"sourceTicks":9007199254740993,"expectedUs":9007199254740993}
+]
