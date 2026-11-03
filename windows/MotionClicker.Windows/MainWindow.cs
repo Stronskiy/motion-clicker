@@ -16,6 +16,9 @@ internal sealed class MainWindow : Window {
     private readonly WinInput backend=new();
     private readonly EmergencyHotkey emergency;
     private RunWorker? worker;
+    private XamlRoot? sizingRoot;
+    private bool applyingWindowSize, initialWindowSizeApplied;
+    private double initialLogicalWidth=WindowSizing.DefaultWidth, initialLogicalHeight=WindowSizing.DefaultHeight;
     private IReadOnlyList<RuntimeDisplay> displays=[];
     private readonly NavigationView navigation=new() { PaneDisplayMode=NavigationViewPaneDisplayMode.Left,IsBackButtonVisible=NavigationViewBackButtonVisible.Collapsed,IsSettingsVisible=false,OpenPaneLength=184,IsPaneOpen=true };
     private readonly Grid workspace=new();
@@ -69,8 +72,15 @@ internal sealed class MainWindow : Window {
         public TextBlock Summary { get; }=new() { FontSize=13,TextWrapping=TextWrapping.Wrap };
     }
     public MainWindow() {
-        Title="Motion Clicker"; AppWindow.Resize(new SizeInt32(1180,800));
-        if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.PreferredMinimumWidth=980; presenter.PreferredMinimumHeight=720; }
+        Title="Motion Clicker";
+        // Wait for this window's XAML root before reading its per-monitor scale.
+        navigation.Loaded+=(_,_)=> {
+            if(sizingRoot!=null) sizingRoot.Changed-=OnSizingRootChanged;
+            sizingRoot=navigation.XamlRoot;
+            if(sizingRoot!=null) sizingRoot.Changed+=OnSizingRootChanged;
+            UpdateWindowSizing();
+        };
+        AppWindow.Changed+=OnAppWindowSizingChanged;
         try { SystemBackdrop=new MicaBackdrop(); } catch { /* Native fallback. */ }
         Content=navigation;
         navigation.MenuItems.Add(new NavigationViewItem { Content="Quick Click",Icon=new SymbolIcon(Symbol.TouchPointer),Tag="quick" });
@@ -107,8 +117,39 @@ internal sealed class MainWindow : Window {
         emergency=new(WinRT.Interop.WindowNative.GetWindowHandle(this),()=>Stop("Emergency, sleep, session or display change — restart required"));
         RefreshDisplays(); navigation.SelectedItem=navigation.MenuItems[0];
         ticker.Tick+=(_,_)=>Poll(); ticker.Start();
-        Closed+=(_,_)=> { Stop("Application closing"); ticker.Stop(); emergency.Dispose(); backend.Dispose(); };
+        Closed+=(_,_)=> {
+            if(sizingRoot!=null) sizingRoot.Changed-=OnSizingRootChanged;
+            AppWindow.Changed-=OnAppWindowSizingChanged;
+            Stop("Application closing"); ticker.Stop(); emergency.Dispose(); backend.Dispose(); };
         ApplyVisualQAArguments(); UpdateShortcut();
+    }
+    private void OnSizingRootChanged(XamlRoot sender,XamlRootChangedEventArgs args)=>UpdateWindowSizing();
+    private void OnAppWindowSizingChanged(Microsoft.UI.Windowing.AppWindow sender,Microsoft.UI.Windowing.AppWindowChangedEventArgs args) {
+        if(args.DidSizeChange||args.DidPresenterChange||args.DidPositionChange) UpdateWindowSizing();
+    }
+    private void UpdateWindowSizing() {
+        if(applyingWindowSize||sizingRoot==null||AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter presenter) return;
+        var scale=sizingRoot.RasterizationScale;
+        // AppWindow sizes and measured non-client extents are already physical pixels.
+        var chromeWidth=Math.Max(0,AppWindow.Size.Width-AppWindow.ClientSize.Width);
+        var chromeHeight=Math.Max(0,AppWindow.Size.Height-AppWindow.ClientSize.Height);
+        if(!WindowSizing.TryCalculate(WindowSizing.MinimumWidth,WindowSizing.MinimumHeight,scale,chromeWidth,chromeHeight,out var minimum)) return;
+        applyingWindowSize=true;
+        try {
+            if(presenter.PreferredMinimumWidth!=minimum.OuterWidth) presenter.PreferredMinimumWidth=minimum.OuterWidth;
+            if(presenter.PreferredMinimumHeight!=minimum.OuterHeight) presenter.PreferredMinimumHeight=minimum.OuterHeight;
+            // Never restore a minimized/maximized window merely to enforce a logical limit.
+            if(presenter.State!=Microsoft.UI.Windowing.OverlappedPresenterState.Restored) return;
+            if(!initialWindowSizeApplied) {
+                if(!WindowSizing.TryCalculate(initialLogicalWidth,initialLogicalHeight,scale,0,0,out var initial)) return;
+                initialWindowSizeApplied=true;
+                AppWindow.ResizeClient(new SizeInt32(initial.ClientWidth,initial.ClientHeight));
+            } else {
+                var client=AppWindow.ClientSize;
+                if(client.Width<minimum.ClientWidth||client.Height<minimum.ClientHeight)
+                    AppWindow.ResizeClient(new SizeInt32(Math.Max(client.Width,minimum.ClientWidth),Math.Max(client.Height,minimum.ClientHeight)));
+            }
+        } finally { applyingWindowSize=false; }
     }
     private static NumberBox Number(string header,double value)=>new() { Header=header,Value=value,MinWidth=70,HorizontalAlignment=HorizontalAlignment.Stretch,SpinButtonPlacementMode=NumberBoxSpinButtonPlacementMode.Compact,SmallChange=1 };
     private static Button Action(string label,Action action) { var b=new Button { Content=label }; b.Click+=(_,_)=>action(); return b; }
@@ -202,7 +243,10 @@ internal sealed class MainWindow : Window {
         var args=Environment.GetCommandLineArgs();
         string? Value(string key) { var i=Array.IndexOf(args,key); return i>=0&&i+1<args.Length?args[i+1]:null; }
         if(Value("--appearance") is string appearance&&appearance is "light" or "dark") navigation.RequestedTheme=appearance=="light"?ElementTheme.Light:ElementTheme.Dark;
-        if(double.TryParse(Value("--window-width"),out var w)&&double.TryParse(Value("--window-height"),out var h)&&double.IsFinite(w)&&double.IsFinite(h)) AppWindow.Resize(new SizeInt32((int)Math.Clamp(w,980,2400),(int)Math.Clamp(h,720,1600)));
+        if(double.TryParse(Value("--window-width"),out var w)&&double.TryParse(Value("--window-height"),out var h)&&double.IsFinite(w)&&double.IsFinite(h)) {
+            initialLogicalWidth=Math.Clamp(w,WindowSizing.MinimumWidth,2400);
+            initialLogicalHeight=Math.Clamp(h,WindowSizing.MinimumHeight,1600);
+        }
         if(args.Contains("--project-empty")) navigation.SelectedItem=navigation.MenuItems[1];
         else if(args.Contains("--preview")) DryRun();
     }

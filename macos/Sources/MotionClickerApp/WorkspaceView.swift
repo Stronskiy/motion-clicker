@@ -7,9 +7,7 @@ import MotionClickerRuntime
 struct WorkspaceView: View {
     @Bindable var model: ClickerModel
     @State private var focusedPoint: UUID?
-    @State private var showPreview=true
     @State private var configuredQA=false
-    @State private var previewRequest=UUID()
     private let ticker=Timer.publish(every:0.1,on:.main,in:.common).autoconnect()
     var body: some View {
         NavigationSplitView {
@@ -32,7 +30,7 @@ struct WorkspaceView: View {
                                 previewSection.id("event-preview")
                             }.padding(24).frame(maxWidth:.infinity,alignment:.leading)
                         }
-                        .onChange(of:previewRequest) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
+                        .onChange(of:model.previewPresentationRequest) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
                         .onChange(of:model.preview.count) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
                         }
                         if geometry.size.width >= 900 {
@@ -163,7 +161,7 @@ struct WorkspaceView: View {
         }.disabled(model.active)
     }
     private var previewSection: some View {
-        DisclosureGroup(isExpanded:$showPreview) {
+        DisclosureGroup(isExpanded:$model.previewExpanded) {
             if model.preview.isEmpty {
                 HStack(spacing:10) {
                     Image(systemName:"play.rectangle").foregroundStyle(.secondary)
@@ -183,7 +181,7 @@ struct WorkspaceView: View {
                     Text("Emergency stop: ⌃⌥⌘ \(model.hotkey == UInt32(kVK_F8) ? "F8" : "F9")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { model.dryRun(); showPreview=true; previewRequest=UUID() } label: { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
+                Button(action:model.requestPreview) { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
                 if model.active {
                     Button { model.stop("Paused — Run restarts from the beginning",paused:true) } label: { Label("Pause",systemImage:"pause.fill") }
                     Button(role:.destructive) { model.stop() } label: { Label("Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
@@ -215,7 +213,6 @@ struct WorkspaceView: View {
         func value(_ key:String) -> String? { guard let i=args.firstIndex(of:key),args.indices.contains(i+1) else { return nil }; return args[i+1] }
         if let appearance=value("--appearance"),["light","dark"].contains(appearance) { NSApp.appearance=NSAppearance(named:appearance == "light" ? .aqua : .darkAqua) }
         if args.contains("--project-empty") { model.mode="Project" }
-        if args.contains("--preview"),!args.contains("--project-empty") { model.dryRun(); previewRequest=UUID() }
         let width=value("--window-width").flatMap(Double.init) ?? 1180
         let height=value("--window-height").flatMap(Double.init) ?? 800
         guard width.isFinite,height.isFinite else { return }
@@ -229,7 +226,7 @@ struct WorkspaceView: View {
             window.center()
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps:true)
-            if args.contains("--preview") { previewRequest=UUID() }
+            if args.contains("--preview"),!args.contains("--project-empty") { model.requestPreview() }
         }
     }
 }

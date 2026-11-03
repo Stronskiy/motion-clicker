@@ -30,6 +30,8 @@ struct ClickPoint: Identifiable {
     var status="Idle — no input is sent until you press Start"
     var snapshot=RunnerSnapshotView()
     var preview:[RuntimeStep]=[]
+    var previewExpanded=true
+    var previewPresentationRequest=UUID()
     var project:MotionProject?
     var projectName="No project loaded"
     var mapping:[String:String]=[:]
@@ -100,6 +102,13 @@ struct ClickPoint: Identifiable {
         }
         return RunProgram(steps:steps,slots:slots,periodUs:offset,count:basic.count,durationUs:basic.durationUs)
     }
+    /// One presentation request for menu, keyboard, toolbar and visual QA.
+    func requestPreview() {
+        guard !active else { return }
+        dryRun()
+        previewExpanded=true
+        previewPresentationRequest=UUID()
+    }
     func dryRun() {
         do { preview=PreviewRunner.events(try program()); status="Dry run — first \(preview.count) events; zero input. One serialized pointer, no physical simultaneity." }
         catch { self.error="Preview unavailable: \(error)" }
@@ -155,7 +164,7 @@ struct RunnerSnapshotView {
             .commands {
                 CommandGroup(replacing:.newItem) { Button("Open Project JSON…",action:model.loadProject).keyboardShortcut("o").disabled(model.active) }
                 CommandMenu("Run") {
-                    Button("Preview",action:model.dryRun).keyboardShortcut("p",modifiers:[.command,.shift]).disabled(model.active)
+                    Button("Preview",action:model.requestPreview).keyboardShortcut("p",modifiers:[.command,.shift]).disabled(model.active)
                     Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift]).disabled(model.active)
                     Button("Stop") { model.stop() }.keyboardShortcut(".")
                 }
