@@ -61,7 +61,7 @@ internal sealed class RecordingIdentityIndex : IDisposable
         directory=Path.Combine(root,".validation-"+Guid.NewGuid());Require(!Directory.Exists(directory),"Validation scratch collision");Directory.CreateDirectory(directory);
         using var owner=new FileStream(Path.Combine(directory,".owner"),FileMode.CreateNew,FileAccess.Write,FileShare.None);
     }
-    public void Dispose(){try{Directory.Delete(directory,true);}catch(IOException){}catch(UnauthorizedAccessException){}}
+    public void Dispose(){try{foreach(var file in Directory.EnumerateFiles(directory))File.Delete(file);Directory.Delete(directory);}catch(IOException){}catch(UnauthorizedAccessException){}}
     public void Add(string key){keys.Add(key);MaximumBufferedIDs=Math.Max(MaximumBufferedIDs,keys.Count);if(keys.Count==4096)Spill();}
     private string RunPath(int pass,long run)=>Path.Combine(directory,$"p{pass}-r{run}");
     private static StreamWriter Output(string path)=>new(new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None),new UTF8Encoding(false),65536);

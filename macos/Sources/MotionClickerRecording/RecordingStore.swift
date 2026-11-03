@@ -145,8 +145,7 @@ public final class RecordingStore: EventJournal {
         try recordingRequire(m.manifestVersion == 1 && m.takeId == takeId && [.completed,.interrupted,.failed].contains(m.state) && m.durationUs > 0 && m.rawEventCount == rawCount, "Invalid terminal manifest")
         try recordingRequire(m.streams.count == m.targets.count && !m.streams.isEmpty, "Missing manifest streams")
         var seen = Set<String>()
-        let incomplete = Set(m.incompleteGroupIds)
-        for id in incomplete { try Self.id(id) }
+        try recordingRequire(m.incompleteGroupIds.count <= 1,"Too many incomplete pointer groups")
         for s in m.streams {
             try recordingRequire(seen.insert(s.monitorSlotId).inserted && m.targets.contains(where: { $0.id == s.monitorSlotId }), "Invalid stream target")
             try recordingRequire(s.relativePath == "media/\(takeId)/\(s.monitorSlotId).mp4", "Unsafe stream media path")

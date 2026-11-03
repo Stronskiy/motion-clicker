@@ -65,7 +65,13 @@ private final class RecordingIdentityIndex {
         guard mkdir(directory.path,S_IRWXU) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         keys.reserveCapacity(4096)
     }
-    func close() { try? FileManager.default.removeItem(at: directory) }
+    func close() {
+        // The flat scratch directory can have many runs: enumerate lazily during failure cleanup.
+        if let entries = FileManager.default.enumerator(at: directory,includingPropertiesForKeys: nil,options: [.skipsSubdirectoryDescendants]) {
+            for case let file as URL in entries { try? FileManager.default.removeItem(at: file) }
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
     func add(_ key: String) throws {
         keys.append(key);maximumBufferedIDs = max(maximumBufferedIDs,keys.count)
         if keys.count == 4096 { try spill() }

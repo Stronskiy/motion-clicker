@@ -124,8 +124,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
     {
         Require(m.ManifestVersion==1&&m.TakeId==takeId&&m.State is RecordingState.Completed or RecordingState.Interrupted or RecordingState.Failed&&m.DurationUs>0&&m.RawEventCount==rawCount,"Invalid terminal manifest");
         Require(m.Streams.Length==m.Targets.Length&&m.Streams.Length>0,"Missing manifest streams");
-        var seen=new HashSet<string>(StringComparer.Ordinal);var incomplete=new HashSet<string>(m.IncompleteGroupIds,StringComparer.Ordinal);
-        foreach(var id in incomplete)Id(id);
+        var seen=new HashSet<string>(StringComparer.Ordinal);Require(m.IncompleteGroupIds.Length<=1,"Too many incomplete pointer groups");
         foreach(var s in m.Streams)
         {
             Require(seen.Add(s.MonitorSlotId)&&m.Targets.Any(t=>t.Id==s.MonitorSlotId),"Invalid stream target");

@@ -74,4 +74,23 @@ public sealed class RecordingStoreTests : IDisposable
         var records=new List<RawPointerRecord>();store.Read(records.Add);Assert.Single(records);Assert.Equal(ActionKind.ButtonDown,records[0].Event.Kind);
         Assert.Equal(p.Manifest.IncompleteGroupIds[0],records[0].AtomicGroupId);
     }
+
+    [Fact] public void LargeTakePublishesBothJournalsWithoutRequestingEventProjection()
+    {
+        var r=Root();using var store=new RecordingStore(r,"take");var s=new RecordingSession("take",RecordingSessionTests.Targets(),store);
+        foreach(var id in new[]{"left","right"}){s.SourceReady(id,new(0,1000000,1000000));File.WriteAllText(store.MediaFile(id),"synthetic-media");}
+        s.EventTapReady();s.Begin(1000000);RecordingSessionTests.Frames(s);
+        for(var i=0;i<10000;i++)s.Receive(new(1000000+i,new(1,1),ActionKind.Move));
+        for(var i=0;i<5000;i++)s.ReportGap("left",i*2000L+1000,i*2000L+1100,GapKind.Dropped);
+        RecordingSessionTests.Finish(s);var m=s.Result!;store.Publish(m);var events=0;var gaps=0;store.Read(_=>events++);store.ReadGaps(_=>gaps++);
+        Assert.Equal(10000,events);Assert.Equal(5001,gaps);Assert.Equal(64,m.Streams[0].Gaps.Length);Assert.Equal("previous-save",File.ReadAllText(Path.Combine(r,"project.json")));
+    }
+    [Fact] public void GapAppendFailureFailsCaptureAndCannotPublish()
+    {
+        var r=Root();var fail=false;using var store=new RecordingStore(r,"take",op=>{if(fail&&op==StoreOperation.Append)throw new IOException("disk full");});
+        var s=new RecordingSession("take",RecordingSessionTests.Targets(),store);foreach(var id in new[]{"left","right"})s.SourceReady(id,new(0,1000000,1000000));
+        s.EventTapReady();s.Begin(1000000);RecordingSessionTests.Frames(s);fail=true;
+        Assert.ThrowsAny<Exception>(()=>s.ReportGap("left",1000,2000,GapKind.Dropped));RecordingSessionTests.Finish(s);Assert.Equal(RecordingState.Failed,s.State);
+        Assert.ThrowsAny<Exception>(()=>store.Publish(s.Result!));Assert.False(store.Recovery.ManifestPublished);
+    }
 }

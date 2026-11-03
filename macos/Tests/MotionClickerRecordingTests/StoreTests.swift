@@ -103,3 +103,32 @@ extension StoreTests {
         XCTAssertEqual(records[0].atomicGroupId,p.manifest.incompleteGroupIds[0]);try store.close()
     }
 }
+
+extension StoreTests {
+    func testLargeTakePublishesBothJournalsWithoutRequestingEventProjection() throws {
+        let r = try root(), store = try RecordingStore(root: r,takeId: "take")
+        let s = try RecordingSession(takeId: "take",targets: recordingTargets(),journal: store)
+        for id in ["left","right"] {
+            try s.sourceReady(monitorSlotId: id,clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 1000000,ticksPerSecond: 1000000))
+            try Data("synthetic-media".utf8).write(to: store.mediaFile(monitorSlotId: id))
+        }
+        try s.eventTapReady();try s.begin(epochHostUs: 1000000);try frames(s)
+        for i in 0..<10000 { try s.receive(event: CapturedPointerEvent(hostTimeUs: 1000000+Int64(i),nativePosition: Point(x: 1,y: 1),kind: .move)) }
+        for i in 0..<5000 { try s.reportGap(monitorSlotId: "left",startTicks: Int64(i)*2000+1000,endTicks: Int64(i)*2000+1100,kind: .dropped) }
+        try finishSession(s);let m = try XCTUnwrap(s.result);_ = try store.publish(manifest: m)
+        var eventCount = 0, gapCount = 0
+        try store.read { _ in eventCount += 1 };try store.readGaps { _ in gapCount += 1 }
+        XCTAssertEqual(eventCount,10000);XCTAssertEqual(gapCount,5001);XCTAssertEqual(m.streams[0].gaps.count,64)
+        XCTAssertEqual(try String(contentsOf: r.appendingPathComponent("project.json"),encoding: .utf8),"previous-save");try store.close()
+    }
+    func testGapAppendFailureFailsCaptureAndCannotPublish() throws {
+        let r = try root();var fail = false
+        let store = try RecordingStore(root: r,takeId: "take") { if fail && $0 == .append { throw RecordingError(message: "disk full") } }
+        let s = try RecordingSession(takeId: "take",targets: recordingTargets(),journal: store)
+        for id in ["left","right"] { try s.sourceReady(monitorSlotId: id,clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 1000000,ticksPerSecond: 1000000)) }
+        try s.eventTapReady();try s.begin(epochHostUs: 1000000);try frames(s);fail = true
+        XCTAssertThrowsError(try s.reportGap(monitorSlotId: "left",startTicks: 1000,endTicks: 2000,kind: .dropped))
+        try finishSession(s);XCTAssertEqual(s.state,.failed)
+        XCTAssertThrowsError(try store.publish(manifest: XCTUnwrap(s.result)));XCTAssertFalse(store.recovery.manifestPublished);try store.close()
+    }
+}

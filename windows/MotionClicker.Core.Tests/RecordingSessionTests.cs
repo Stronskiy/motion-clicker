@@ -139,8 +139,9 @@ public sealed class RecordingSessionTests
     [Fact] public void NormalCallbacksDoNotCopyHistoricalGapArrays()
     {
         var s=Ready(new());Frames(s);
-        long Measure(){var before=GC.GetAllocatedBytesForCurrentThread();for(var i=0;i<2000;i++)s.Idle("left",20000000+i);return GC.GetAllocatedBytesForCurrentThread()-before;}
+        long tick=1000;
+        long Measure(){var before=GC.GetAllocatedBytesForCurrentThread();for(var i=0;i<2000;i++){s.Idle("left",tick);s.AcceptedFrame("left",tick,tick,1);tick++;}return GC.GetAllocatedBytesForCurrentThread()-before;}
         _=Measure();var cold=Measure();for(var i=0;i<5000;i++)s.ReportGap("left",i*2000L+1000,i*2000L+1100,GapKind.Dropped);
-        var warm=Measure();Assert.True(warm<=cold+131072,$"Idle allocation grew from {cold} to {warm} bytes with historical gaps");
+        var warm=Measure();Assert.True(warm<=cold+131072,$"Frame/idle allocation grew from {cold} to {warm} bytes with historical gaps");
     }
 }

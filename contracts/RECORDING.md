@@ -146,7 +146,7 @@ edit this store's files. No prior project.json or published file is opened for
 writing. All staging is on the destination filesystem.
 
 Store owns only `.capture-<uuid>/media`, `.capture-<uuid>/metadata/events.jsonl`
-`.capture-<uuid>/metadata/gaps.jsonl` and `.capture-<uuid>/metadata/manifest.json` (plus a private Windows ownership marker). Raw UTF-8 JSONL is streamed and
+`.capture-<uuid>/metadata/gaps.jsonl` and `.capture-<uuid>/metadata/manifest.json` (plus a private Windows ownership marker and transient `.validation-*` identity-sort scratch). Raw UTF-8 JSONL is streamed and
 flushed durably. `publish` validates terminal manifest, ID, exact stream paths,
 nonempty successful media files, journal count, and duration. It flushes, writes
 and flushes the manifest in staging, then atomically moves the uniquely named
