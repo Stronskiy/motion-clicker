@@ -133,6 +133,7 @@ public final class SafeRunner: @unchecked Sendable {
             }
             try backend.send(step, at: point)
             if step.kind == .buttonUp { owned = nil }
+            else if let hold = owned { owned = (hold.0, point) }
             dispatched += 1; index += 1
             if index == p.steps.count {
                 index = 0
