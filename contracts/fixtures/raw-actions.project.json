@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "id": "raw-project",
+  "revision": 3,
+  "monitorSlots": [
+    {
+      "id": "left",
+      "name": "left",
+      "geometry": {
+        "origin": {
+          "x": -1000,
+          "y": 0
+        },
+        "size": {
+          "width": 1000,
+          "height": 800
+        },
+        "scaleFactor": 1,
+        "rotationDegrees": 0
+      }
+    },
+    {
+      "id": "right",
+      "name": "right",
+      "geometry": {
+        "origin": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 1000,
+          "height": 800
+        },
+        "scaleFactor": 1,
+        "rotationDegrees": 0
+      }
+    }
+  ],
+  "takes": [
+    {
+      "id": "take-raw",
+      "durationUs": 1000,
+      "monitorSlotIds": [
+        "left",
+        "right"
+      ],
+      "media": []
+    }
+  ],
+  "tracks": [
+    {
+      "id": "left-track",
+      "name": "Left",
+      "monitorSlotId": "left",
+      "order": 0
+    },
+    {
+      "id": "right-track",
+      "name": "Right",
+      "monitorSlotId": "right",
+      "order": 1
+    }
+  ],
+  "clips": [
+    {
+      "id": "left-clip",
+      "trackId": "left-track",
+      "takeId": "take-raw",
+      "sourceInUs": 0,
+      "sourceOutUs": 1000,
+      "timelineStartUs": 500,
+      "speed": 1,
+      "linkGroupId": "link-one"
+    },
+    {
+      "id": "right-clip",
+      "trackId": "right-track",
+      "takeId": "take-raw",
+      "sourceInUs": 0,
+      "sourceOutUs": 1000,
+      "timelineStartUs": 500,
+      "speed": 1,
+      "linkGroupId": "link-one"
+    }
+  ],
+  "events": [
+    {
+      "id": "move-free",
+      "takeId": "take-raw",
+      "monitorSlotId": "left",
+      "timeUs": 50,
+      "order": 0,
+      "kind": "move",
+      "x": 10,
+      "y": 20
+    },
+    {
+      "id": "down",
+      "takeId": "take-raw",
+      "monitorSlotId": "left",
+      "timeUs": 100,
+      "order": 1,
+      "kind": "buttonDown",
+      "x": 990,
+      "y": 400,
+      "button": "left",
+      "atomicGroupId": "drag-one"
+    },
+    {
+      "id": "drag-move",
+      "takeId": "take-raw",
+      "monitorSlotId": "right",
+      "timeUs": 150,
+      "order": 2,
+      "kind": "move",
+      "x": 10,
+      "y": 400,
+      "atomicGroupId": "drag-one"
+    },
+    {
+      "id": "up",
+      "takeId": "take-raw",
+      "monitorSlotId": "right",
+      "timeUs": 200,
+      "order": 3,
+      "kind": "buttonUp",
+      "x": 30,
+      "y": 400,
+      "button": "left",
+      "atomicGroupId": "drag-one"
+    },
+    {
+      "id": "scroll",
+      "takeId": "take-raw",
+      "monitorSlotId": "left",
+      "timeUs": 300,
+      "order": 4,
+      "kind": "scroll",
+      "x": 20,
+      "y": 30,
+      "deltaX": 2.5,
+      "deltaY": -8
+    }
+  ]
+}

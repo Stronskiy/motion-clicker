@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "id": "tie-project",
+  "revision": 0,
+  "monitorSlots": [
+    {
+      "id": "left",
+      "name": "left",
+      "geometry": {
+        "origin": {
+          "x": -1920,
+          "y": -200
+        },
+        "size": {
+          "width": 1920,
+          "height": 1080
+        },
+        "scaleFactor": 1,
+        "rotationDegrees": 0
+      }
+    },
+    {
+      "id": "right",
+      "name": "right",
+      "geometry": {
+        "origin": {
+          "x": 0,
+          "y": 0
+        },
+        "size": {
+          "width": 1440,
+          "height": 900
+        },
+        "scaleFactor": 2,
+        "rotationDegrees": 0
+      }
+    }
+  ],
+  "takes": [
+    {
+      "id": "take-one",
+      "durationUs": 1000,
+      "monitorSlotIds": [
+        "left",
+        "right"
+      ],
+      "media": []
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-left",
+      "name": "Left",
+      "monitorSlotId": "left",
+      "order": 1
+    },
+    {
+      "id": "track-right",
+      "name": "Right",
+      "monitorSlotId": "right",
+      "order": 0
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-left",
+      "trackId": "track-left",
+      "takeId": "take-one",
+      "sourceInUs": 100,
+      "sourceOutUs": 500,
+      "timelineStartUs": 500,
+      "speed": 1
+    },
+    {
+      "id": "clip-right",
+      "trackId": "track-right",
+      "takeId": "take-one",
+      "sourceInUs": 100,
+      "sourceOutUs": 500,
+      "timelineStartUs": 500,
+      "speed": 1
+    }
+  ],
+  "events": [
+    {
+      "id": "event-left",
+      "takeId": "take-one",
+      "monitorSlotId": "left",
+      "timeUs": 200,
+      "order": 0,
+      "kind": "move",
+      "x": 100,
+      "y": 150
+    },
+    {
+      "id": "event-right-z",
+      "takeId": "take-one",
+      "monitorSlotId": "right",
+      "timeUs": 200,
+      "order": 5,
+      "kind": "move",
+      "x": 100,
+      "y": 150
+    },
+    {
+      "id": "event-right-a",
+      "takeId": "take-one",
+      "monitorSlotId": "right",
+      "timeUs": 200,
+      "order": 5,
+      "kind": "move",
+      "x": 100,
+      "y": 150
+    },
+    {
+      "id": "event-right-first",
+      "takeId": "take-one",
+      "monitorSlotId": "right",
+      "timeUs": 200,
+      "order": 0,
+      "kind": "move",
+      "x": 100,
+      "y": 150
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "sourceSize": {
+    "width": 1920,
+    "height": 1080
+  },
+  "displayOrigin": {
+    "x": -1920,
+    "y": -200
+  },
+  "viewport": {
+    "origin": {
+      "x": 10,
+      "y": 20
+    },
+    "size": {
+      "width": 1000,
+      "height": 1000
+    }
+  },
+  "local": {
+    "x": 960,
+    "y": 540
+  },
+  "expectedDesktop": {
+    "x": -960,
+    "y": 340
+  },
+  "expectedPreview": {
+    "x": 510,
+    "y": 520
+  },
+  "expectedFit": {
+    "origin": {
+      "x": 10,
+      "y": 238.75
+    },
+    "size": {
+      "width": 1000,
+      "height": 562.5
+    }
+  },
+  "letterboxPoint": {
+    "x": 500,
+    "y": 100
+  }
+}

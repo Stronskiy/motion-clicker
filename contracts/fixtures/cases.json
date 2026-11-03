@@ -1,0 +1,27 @@
+{
+  "projectCases": [
+    {
+      "input": "empty.project.json",
+      "expectedPlan": "empty.plan.json"
+    },
+    {
+      "input": "two-track-tie.project.json",
+      "expectedPlan": "two-track-tie.plan.json"
+    },
+    {
+      "input": "linked-clip-boundary.project.json",
+      "expectedPlan": "linked-clip-boundary.plan.json"
+    },
+    {
+      "input": "raw-actions.project.json",
+      "expectedPlan": "raw-actions.plan.json"
+    },
+    {
+      "input": "missing-monitor.project.json",
+      "expectedError": "missing-monitor.error.json"
+    }
+  ],
+  "geometryCases": [
+    "negative-origin.geometry.json"
+  ]
+}

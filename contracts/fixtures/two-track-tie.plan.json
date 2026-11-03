@@ -1,0 +1,58 @@
+[
+  {
+    "id": "clip-right:event-right-first",
+    "sourceEventId": "event-right-first",
+    "clipId": "clip-right",
+    "takeId": "take-one",
+    "monitorSlotId": "right",
+    "timeUs": 600,
+    "sourceTimeUs": 200,
+    "trackOrder": 0,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "clip-right:event-right-a",
+    "sourceEventId": "event-right-a",
+    "clipId": "clip-right",
+    "takeId": "take-one",
+    "monitorSlotId": "right",
+    "timeUs": 600,
+    "sourceTimeUs": 200,
+    "trackOrder": 0,
+    "eventOrder": 5,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "clip-right:event-right-z",
+    "sourceEventId": "event-right-z",
+    "clipId": "clip-right",
+    "takeId": "take-one",
+    "monitorSlotId": "right",
+    "timeUs": 600,
+    "sourceTimeUs": 200,
+    "trackOrder": 0,
+    "eventOrder": 5,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "clip-left:event-left",
+    "sourceEventId": "event-left",
+    "clipId": "clip-left",
+    "takeId": "take-one",
+    "monitorSlotId": "left",
+    "timeUs": 600,
+    "sourceTimeUs": 200,
+    "trackOrder": 1,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  }
+]

@@ -1,0 +1,724 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Stronskiy/motion-clicker/contracts/project.schema.json",
+  "title": "Motion Clicker pre-release project domain subset v1",
+  "description": "Structural schema only. FORMAT.md defines required semantic/reference/group/overflow checks. Not a complete bundle or video format.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "revision": {
+      "$ref": "#/$defs/timeUs"
+    },
+    "monitorSlots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/monitorSlot"
+      }
+    },
+    "takes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/take"
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "clips": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/timelineClip"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/recordedAction"
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "revision",
+    "monitorSlots",
+    "takes",
+    "tracks",
+    "clips",
+    "events"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "timeUs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "order": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "finiteNumber": {
+      "type": "number",
+      "minimum": -1.7976931348623157e+308,
+      "maximum": 1.7976931348623157e+308
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": -1.7976931348623157e+308,
+          "maximum": 1.7976931348623157e+308
+        },
+        "y": {
+          "type": "number",
+          "minimum": -1.7976931348623157e+308,
+          "maximum": 1.7976931348623157e+308
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ]
+    },
+    "size": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e+308
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "rect": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/point"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        }
+      },
+      "required": [
+        "origin",
+        "size"
+      ]
+    },
+    "displayGeometry": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/point"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        },
+        "scaleFactor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "rotationDegrees": {
+          "enum": [
+            0,
+            90,
+            180,
+            270
+          ]
+        }
+      },
+      "required": [
+        "origin",
+        "size",
+        "scaleFactor",
+        "rotationDegrees"
+      ]
+    },
+    "monitorSlot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "geometry": {
+          "$ref": "#/$defs/displayGeometry"
+        },
+        "deviceHint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "geometry"
+      ]
+    },
+    "takeMedia": {
+      "type": "object",
+      "properties": {
+        "monitorSlotId": {
+          "$ref": "#/$defs/id"
+        },
+        "relativePath": {
+          "type": "string",
+          "pattern": "^media/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$"
+        }
+      },
+      "required": [
+        "monitorSlotId",
+        "relativePath"
+      ]
+    },
+    "take": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "durationUs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "monitorSlotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "media": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/takeMedia"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "durationUs",
+        "monitorSlotIds",
+        "media"
+      ]
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "monitorSlotId": {
+          "$ref": "#/$defs/id"
+        },
+        "order": {
+          "$ref": "#/$defs/order"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "monitorSlotId",
+        "order"
+      ]
+    },
+    "timelineClip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "trackId": {
+          "$ref": "#/$defs/id"
+        },
+        "takeId": {
+          "$ref": "#/$defs/id"
+        },
+        "sourceInUs": {
+          "$ref": "#/$defs/timeUs"
+        },
+        "sourceOutUs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "timelineStartUs": {
+          "$ref": "#/$defs/timeUs"
+        },
+        "speed": {
+          "const": 1
+        },
+        "linkGroupId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "trackId",
+        "takeId",
+        "sourceInUs",
+        "sourceOutUs",
+        "timelineStartUs",
+        "speed"
+      ]
+    },
+    "recordedAction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "takeId": {
+          "$ref": "#/$defs/id"
+        },
+        "monitorSlotId": {
+          "$ref": "#/$defs/id"
+        },
+        "timeUs": {
+          "$ref": "#/$defs/timeUs"
+        },
+        "order": {
+          "$ref": "#/$defs/order"
+        },
+        "kind": {
+          "enum": [
+            "move",
+            "buttonDown",
+            "buttonUp",
+            "scroll"
+          ]
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "button": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "atomicGroupId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deltaX": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deltaY": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "takeId",
+        "monitorSlotId",
+        "timeUs",
+        "order",
+        "kind",
+        "x",
+        "y"
+      ],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "move"
+            },
+            "button": {
+              "type": "null"
+            },
+            "deltaX": {
+              "type": "null"
+            },
+            "deltaY": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "buttonDown",
+                "buttonUp"
+              ]
+            },
+            "button": {
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ]
+            },
+            "atomicGroupId": {
+              "type": "string"
+            },
+            "deltaX": {
+              "type": "null"
+            },
+            "deltaY": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "kind",
+            "button",
+            "atomicGroupId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "scroll"
+            },
+            "button": {
+              "type": "null"
+            },
+            "atomicGroupId": {
+              "type": "null"
+            },
+            "deltaX": {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            "deltaY": {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            }
+          },
+          "required": [
+            "kind",
+            "deltaX",
+            "deltaY"
+          ]
+        }
+      ]
+    },
+    "plannedAction": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "sourceEventId": {
+          "$ref": "#/$defs/id"
+        },
+        "clipId": {
+          "$ref": "#/$defs/id"
+        },
+        "takeId": {
+          "$ref": "#/$defs/id"
+        },
+        "monitorSlotId": {
+          "$ref": "#/$defs/id"
+        },
+        "timeUs": {
+          "$ref": "#/$defs/timeUs"
+        },
+        "sourceTimeUs": {
+          "$ref": "#/$defs/timeUs"
+        },
+        "trackOrder": {
+          "$ref": "#/$defs/order"
+        },
+        "eventOrder": {
+          "$ref": "#/$defs/order"
+        },
+        "kind": {
+          "enum": [
+            "move",
+            "buttonDown",
+            "buttonUp",
+            "scroll"
+          ]
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1.7976931348623157e+308
+        },
+        "button": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "atomicGroupId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:link:)?[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deltaX": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deltaY": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "sourceEventId",
+        "clipId",
+        "takeId",
+        "monitorSlotId",
+        "timeUs",
+        "sourceTimeUs",
+        "trackOrder",
+        "eventOrder",
+        "kind",
+        "x",
+        "y"
+      ],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "move"
+            },
+            "button": {
+              "type": "null"
+            },
+            "deltaX": {
+              "type": "null"
+            },
+            "deltaY": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "buttonDown",
+                "buttonUp"
+              ]
+            },
+            "button": {
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ]
+            },
+            "atomicGroupId": {
+              "type": "string"
+            },
+            "deltaX": {
+              "type": "null"
+            },
+            "deltaY": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "kind",
+            "button",
+            "atomicGroupId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "scroll"
+            },
+            "button": {
+              "type": "null"
+            },
+            "atomicGroupId": {
+              "type": "null"
+            },
+            "deltaX": {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            },
+            "deltaY": {
+              "type": "number",
+              "minimum": -1.7976931348623157e+308,
+              "maximum": 1.7976931348623157e+308
+            }
+          },
+          "required": [
+            "kind",
+            "deltaX",
+            "deltaY"
+          ]
+        }
+      ]
+    },
+    "runPlan": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/plannedAction"
+      }
+    },
+    "projectError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "unsupportedVersion",
+            "invalidID",
+            "duplicateID",
+            "missingReference",
+            "invalidRange",
+            "invalidGeometry",
+            "invalidCoordinate",
+            "invalidAction",
+            "invalidAtomicGroup",
+            "atomicGroupSplit",
+            "mouseConflict",
+            "unsafeMediaPath"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "path",
+        "message"
+      ]
+    }
+  }
+}
