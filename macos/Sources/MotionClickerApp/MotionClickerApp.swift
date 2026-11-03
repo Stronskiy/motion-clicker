@@ -206,6 +206,7 @@ struct MainView: View {
             ToolbarItem { Button { model.stop() } label: { Label("Stop",systemImage:"stop.fill") }.keyboardShortcut(".").tint(.red) }
         }
         .onReceive(ticker) { _ in model.poll() }
+        .onDisappear { model.stop("Window closed") }
         .alert("Motion Clicker",isPresented:Binding(get:{model.error != nil},set:{if !$0 { model.error=nil }})) { Button("OK") { model.error=nil } } message: { Text(model.error ?? "") }
         .onAppear {
             NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps:true)

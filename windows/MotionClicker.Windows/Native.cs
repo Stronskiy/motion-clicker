@@ -78,7 +78,7 @@ internal sealed class WinMonitors : IMonitorProvider {
 }
 internal sealed class MonotonicClock : IMonotonicClock { public long NowUs => (long)(Stopwatch.GetTimestamp()*(1000000.0/Stopwatch.Frequency)); }
 internal sealed class WinInput : IInputBackend,IDisposable {
-    private const nuint Tag=0x4d434c49434b;
+    private static readonly nuint Tag=checked((nuint)0x4d434c49434bUL);
     private long interference;
     private nint mouseHook,keyboardHook;
     private uint hookThread;
