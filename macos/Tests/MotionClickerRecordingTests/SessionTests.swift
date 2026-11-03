@@ -135,3 +135,13 @@ extension SessionTests {
         XCTAssertThrowsError(try RecordingSession(takeId: "left",targets: recordingTargets(),journal: MemoryJournal()))
     }
 }
+
+extension SessionTests {
+    func testOverflowingWriterCannotAppearAsSuccessfulMedia() throws {
+        let s = try readySession(MemoryJournal());try frames(s);try s.stop(hostTimeUs: 2000000)
+        try s.writerFinished(monitorSlotId: "left",status: .succeeded,encodedDurationUs: 1000)
+        try s.writerFinished(monitorSlotId: "right",status: .succeeded,encodedDurationUs: .max)
+        let p = try s.project();XCTAssertEqual(p.manifest.state,.failed)
+        XCTAssertEqual(p.manifest.streams[1].writerStatus,.failed);XCTAssertEqual(p.take.media.count,1)
+    }
+}

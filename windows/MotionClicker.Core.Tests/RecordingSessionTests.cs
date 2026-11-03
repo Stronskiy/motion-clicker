@@ -113,4 +113,10 @@ public sealed class RecordingSessionTests
         var ready=Ready(new());Frames(ready);Finish(ready);var old=ready.Result!;old.Streams[0]=old.Streams[1];old.Targets[0]=old.Targets[1];
         Assert.Equal("left",ready.Result!.Streams[0].MonitorSlotId);Assert.Equal("left",ready.Project().Manifest.Targets[0].Id);
     }
+
+    [Fact] public void OverflowingWriterCannotAppearAsSuccessfulMedia()
+    {
+        var s=Ready(new());Frames(s);s.Stop(2000000);s.WriterFinished("left",WriterStatus.Succeeded,1000);s.WriterFinished("right",WriterStatus.Succeeded,long.MaxValue);
+        var p=s.Project();Assert.Equal(RecordingState.Failed,p.Manifest.State);Assert.Equal(WriterStatus.Failed,p.Manifest.Streams[1].WriterStatus);Assert.Single(p.Take.Media);
+    }
 }

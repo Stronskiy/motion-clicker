@@ -44,7 +44,7 @@ final class StoreTests: XCTestCase {
     }
     func testRejectsTraversalSymlinkAndCaseCollisions() throws {
         let r = try root()
-        for id in ["../escape", "bad/name", ".", "..", ""] { XCTAssertThrowsError(try RecordingStore(root: r,takeId: id)) }
+        for id in ["../escape", "bad/name", ".", "..", "", "CON", "aux", "com1", "LPT9", "tail."] { XCTAssertThrowsError(try RecordingStore(root: r,takeId: id)) }
         let outside = try root(); try FileManager.default.createSymbolicLink(at: r.appendingPathComponent("media"),withDestinationURL: outside)
         XCTAssertThrowsError(try RecordingStore(root: r,takeId: "take"))
         let q = try root(); try FileManager.default.createDirectory(at: q.appendingPathComponent("MEDIA"),withIntermediateDirectories: false)

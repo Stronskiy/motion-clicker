@@ -36,7 +36,7 @@ public sealed class RecordingStoreTests : IDisposable
     }
     [Fact] public void RejectsTraversalSymlinkAndCaseCollisions()
     {
-        var r=Root();foreach(var id in new[]{"../escape","bad/name",".","..",""})Assert.ThrowsAny<Exception>(()=>new RecordingStore(r,id));
+        var r=Root();foreach(var id in new[]{"../escape","bad/name",".","..","","CON","aux","com1","LPT9","tail."})Assert.ThrowsAny<Exception>(()=>new RecordingStore(r,id));
         var outside=Root();Directory.CreateSymbolicLink(Path.Combine(r,"media"),outside);Assert.ThrowsAny<Exception>(()=>new RecordingStore(r,"take"));
         var q=Root();Directory.CreateDirectory(Path.Combine(q,"MEDIA"));Assert.ThrowsAny<Exception>(()=>new RecordingStore(q,"take"));
     }
