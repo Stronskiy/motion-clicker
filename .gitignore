@@ -1,0 +1,40 @@
+# Local specifications, planning, evidence, and agent state
+docs/
+.superpowers/
+.codex/
+.agents/
+.worktrees/
+recordings/
+projects-local/
+
+# Build output and caches
+dist/
+build/
+.build/
+DerivedData/
+**/bin/
+**/obj/
+**/TestResults/
+*.app/
+*.dSYM/
+__pycache__/
+
+# Machine and editor state
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vs/
+.idea/
+xcuserdata/
+*.xcuserstate
+*.suo
+*.user
+
+# Local configuration and signing
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.key
+*.mobileprovision
