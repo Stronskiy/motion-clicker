@@ -7,6 +7,8 @@ let package = Package(
     products: [.library(name: "MotionClickerCore", targets: ["MotionClickerCore"])],
     targets: [
         .target(name: "MotionClickerCore"),
+        .target(name: "MotionClickerRuntime", dependencies: ["MotionClickerCore"]),
+        .testTarget(name: "MotionClickerRuntimeTests", dependencies: ["MotionClickerRuntime", "MotionClickerCore"]),
         .testTarget(name: "MotionClickerCoreTests", dependencies: ["MotionClickerCore"])
     ]
 )
