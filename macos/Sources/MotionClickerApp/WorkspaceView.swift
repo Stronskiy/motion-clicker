@@ -245,6 +245,7 @@ private struct PointEditor: View {
     let last:Bool
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
+            Text("X/Y are local logical points from the selected display’s top-left.").font(.caption).foregroundStyle(.secondary)
             Picker("Display",selection:$point.displayID) { ForEach(displays,id:\.id) { Text(displayTitle($0,displays:allDisplays)).tag($0.id) } }
             coordinate("X",value:$point.x,unit:"pt")
             coordinate("Y",value:$point.y,unit:"pt")

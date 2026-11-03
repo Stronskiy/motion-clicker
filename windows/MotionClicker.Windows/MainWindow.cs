@@ -47,6 +47,7 @@ internal sealed class MainWindow : Window {
     private readonly TextBlock metrics=new() { Text="Dispatched attempts: 0",Opacity=0.7,TextWrapping=TextWrapping.Wrap,FontSize=12 };
     private readonly TextBlock stopShortcut=new() { FontSize=12,Opacity=0.7 };
     private readonly TextBlock heading=new() { FontSize=26,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold };
+    private readonly Expander previewHost=new() { Header="Event preview · no input",IsExpanded=true,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch };
     private readonly ListView preview=new() { Height=128,SelectionMode=ListViewSelectionMode.None };
     private readonly TextBlock previewEmpty=new() { Text="Preview the event order without sending input.",Opacity=0.7,TextWrapping=TextWrapping.Wrap };
     private readonly Dictionary<string,ComboBox> mapping=[];
@@ -90,7 +91,7 @@ internal sealed class MainWindow : Window {
         };
         content.Children.Add(heading); content.Children.Add(controls);
         var previewContents=new StackPanel { Spacing=8 }; previewContents.Children.Add(previewEmpty); previewContents.Children.Add(preview);
-        content.Children.Add(new Expander { Header="Event preview · no input",IsExpanded=true,Content=previewContents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch });
+        previewHost.Content=previewContents; content.Children.Add(previewHost);
         var transport=new StackPanel { Spacing=10,Padding=new Thickness(24,14,24,14) }; Grid.SetRow(transport,1); shell.Children.Add(transport);
         var actions=new Grid(); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) }); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
         var summary=new StackPanel { Spacing=4 }; status.MaxWidth=420; summary.Children.Add(status); summary.Children.Add(stopShortcut); actions.Children.Add(summary);
@@ -153,6 +154,7 @@ internal sealed class MainWindow : Window {
         foreach(var e in new FrameworkElement[]{p.Display,p.X,p.Y,p.Pause}) if(e.Parent is Panel old) old.Children.Clear();
         var up=Action("Move up",()=>Move(p,-1)); up.IsEnabled=points.IndexOf(p)>0;
         var down=Action("Move down",()=>Move(p,1)); down.IsEnabled=points.IndexOf(p)<points.Count-1;
+        pointEditor.Children.Add(new TextBlock { Text="X/Y are local logical points from the selected display’s top-left.",FontSize=12,TextWrapping=TextWrapping.Wrap,Opacity=0.7 });
         pointEditor.Children.Add(p.Display);
         pointEditor.Children.Add(p.X); pointEditor.Children.Add(p.Y); pointEditor.Children.Add(p.Pause);
         pointEditor.Children.Add(Row(up,down,Action("Remove",()=> { points.Remove(p); focusedPoint=points.FirstOrDefault(); RenderPoints(); })));
@@ -212,7 +214,11 @@ internal sealed class MainWindow : Window {
             var file=await picker.PickSingleFileAsync(); if(file==null) return;
             if(new FileInfo(file.Path).Length>16777216) throw new InvalidOperationException("Project JSON exceeds 16 MB");
             var loaded=ProjectJson.Deserialize<MotionProject>(await File.ReadAllTextAsync(file.Path)); var plan=ProgramCompiler.Project(loaded);
-            Stop("Project loaded"); project=loaded; projectName=file.Name; projectMode=true; navigation.SelectedItem=navigation.MenuItems[1]; RenderControls();
+            Stop("Project loaded"); project=loaded; projectName=file.Name;
+            // A newly validated import always requires fresh, deliberate bindings.
+            // RenderControls may retain choices only while re-rendering this project.
+            mapping.Clear();
+            projectMode=true; navigation.SelectedItem=navigation.MenuItems[1]; RenderControls();
             ShowPreview(plan); status.Text="Map every imported monitor explicitly before Start. Domain events only; video is unavailable.";
         } catch(Exception error) { await Error($"Project cannot be loaded: {error.Message}"); }
     }
@@ -248,6 +254,7 @@ internal sealed class MainWindow : Window {
     private void ShowPreview(RunProgram program) {
         var events=PreviewRunner.Events(program);
         preview.ItemsSource=events.Select(e=>$"{e.TimeUs/1000.0:0.0} ms · {e.Kind} · {(displays.FirstOrDefault(d=>d.Id==e.Slot) is RuntimeDisplay d?DisplayName(d):project?.MonitorSlots.FirstOrDefault(s=>s.Id==e.Slot)?.Name??"Unmapped display")} · {(e.Point==null?"current pointer":$"({e.Point.X:0.##}, {e.Point.Y:0.##})")}").ToArray();
+        previewHost.IsExpanded=true;
         previewEmpty.Visibility=Visibility.Collapsed;
         DispatcherQueue.TryEnqueue(()=>preview.StartBringIntoView());
     }
