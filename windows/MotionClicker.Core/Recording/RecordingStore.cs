@@ -8,7 +8,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
 {
     private readonly string root,staging,media,metadata,takeId;
     private readonly Action<StoreOperation> fault;
-    private FileStream? handle;
+    private FileStream? handle,gapHandle;
     private bool poisoned,closed,mediaPublished,manifestPublished;
     private readonly HashSet<string> reserved=new(StringComparer.OrdinalIgnoreCase);
     private long rawCount;
@@ -27,6 +27,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         using(var owner=new FileStream(Path.Combine(staging,".owner"),FileMode.CreateNew,FileAccess.Write,FileShare.None))owner.Flush(true);
         Directory.CreateDirectory(Path.Combine(staging,"media"));Directory.CreateDirectory(Path.Combine(staging,"metadata"));
         handle=new(JournalPath,FileMode.CreateNew,FileAccess.Write,FileShare.Read);
+        try{gapHandle=new(GapPath,FileMode.CreateNew,FileAccess.Write,FileShare.Read);}catch{handle.Dispose();throw;}
     }
     private static string CanonicalDirectory(string path)
     {
@@ -71,6 +72,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         Check(path);if(!Exists(path))Directory.CreateDirectory(path);Require(File.GetAttributes(path).HasFlag(FileAttributes.Directory),"Expected directory");
     }
     private string JournalPath=>Path.Combine(manifestPublished?metadata:Path.Combine(staging,"metadata"),"events.jsonl");
+    private string GapPath=>Path.Combine(manifestPublished?metadata:Path.Combine(staging,"metadata"),"gaps.jsonl");
     public string MediaFile(string monitorSlotId)
     {
         Id(monitorSlotId);Require(!closed&&!mediaPublished&&frozenManifest is null&&!poisoned,"Capture store no longer writable");
@@ -88,22 +90,31 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         }
         catch{poisoned=true;throw;}
     }
-    public void AppendGap(JournalGapRecord record)=>throw new RecordingException("Gap journal not implemented");
-    public void ReadGaps(Action<JournalGapRecord> visit) { }
+    public void AppendGap(JournalGapRecord record)
+    {
+        Require(!closed&&!poisoned&&frozenManifest is null,"Capture journal no longer writable");
+        try{Check(GapPath);fault(StoreOperation.Append);var output=gapHandle??throw new RecordingException("Gap journal closed");output.Write(Encoding.UTF8.GetBytes(RecordingJson.Serialize(record)+"\n"));}
+        catch{poisoned=true;throw;}
+    }
+    public void ReadGaps(Action<JournalGapRecord> visit){gapHandle?.Flush(true);ReadLines(GapPath,visit);}
     public void Flush()
     {
-        Require(!poisoned,"Capture journal failed");try{Check(JournalPath);fault(StoreOperation.Flush);handle?.Flush(true);}catch{poisoned=true;throw;}
+        Require(!poisoned,"Capture journal failed");try{Check(JournalPath);Check(GapPath);fault(StoreOperation.Flush);handle?.Flush(true);gapHandle?.Flush(true);}catch{poisoned=true;throw;}
     }
     public void Read(Action<RawPointerRecord> visit)
     {
-        Check(JournalPath);handle?.Flush(true);
-        using var input=new FileStream(JournalPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
+        handle?.Flush(true);ReadLines(JournalPath,visit);
+    }
+    private void ReadLines<T>(string path,Action<T> visit) where T : class
+    {
+        Check(path);
+        using var input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
         using var reader=new StreamReader(input,new UTF8Encoding(false,true));var buffer=new char[65536];var line=new StringBuilder();int length;
         while((length=reader.Read(buffer,0,buffer.Length))>0)for(var i=0;i<length;i++)
         {
             if(buffer[i]=='\n')
             {
-                Require(line.Length>0,"Invalid journal line");visit(RecordingJson.Deserialize<RawPointerRecord>(line.ToString()));line.Clear();
+                Require(line.Length>0,"Invalid journal line");visit(RecordingJson.Deserialize<T>(line.ToString()));line.Clear();
             }
             else{line.Append(buffer[i]);Require(line.Length<=1048576,"Oversized journal record");}
         }
@@ -122,6 +133,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             _=new MediaClockMapper(s.Clock.SourceAnchorTicks,s.Clock.HostAnchorUs,s.Clock.TicksPerSecond,m.EpochHostUs);
             Require(s.FrameCount>=0&&s.EncodedDurationUs>=0,"Invalid media counters");
             if(s.MediaTimeZeroUs is long zero)Require(zero>=0&&(s.WriterStatus==WriterStatus.Failed||checked(zero+s.EncodedDurationUs)<=m.DurationUs),"Media beyond take");
+            Require(s.GapCount>=0&&s.Gaps.Length==Math.Min(s.GapCount,64)&&s.GapJournalPath==$"takes/{takeId}/gaps.jsonl","Invalid gap preview metadata");
             foreach(var gap in s.Gaps)Require(gap.StartUs>=0&&gap.EndUs>=gap.StartUs&&gap.EndUs<=m.DurationUs&&Enum.IsDefined(gap.Kind),"Invalid gap range");
             Require(Enum.IsDefined(s.WriterStatus),"Invalid writer status");
             if(s.WriterStatus==WriterStatus.Succeeded)
@@ -132,6 +144,13 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             }
             else Require(m.State!=RecordingState.Completed,"Failed writer labeled completed");
         }
+        var counts=m.Streams.ToDictionary(s=>s.MonitorSlotId,_=>0L,StringComparer.Ordinal);var streamMap=m.Streams.ToDictionary(s=>s.MonitorSlotId,StringComparer.Ordinal);
+        ReadGaps(r=>{
+            Require(streamMap.ContainsKey(r.MonitorSlotId),"Unknown gap source");var stream=streamMap[r.MonitorSlotId];var count=counts[r.MonitorSlotId];var gap=r.Gap;
+            Require(gap.StartUs>=0&&gap.EndUs>=gap.StartUs&&gap.EndUs<=m.DurationUs,"Invalid journal gap range");
+            if(count<64)Require(count<stream.Gaps.Length&&stream.Gaps[(int)count]==gap,"Gap preview mismatch");counts[r.MonitorSlotId]=checked(count+1);
+        });
+        foreach(var stream in m.Streams)Require(counts[stream.MonitorSlotId]==stream.GapCount,"Gap journal count mismatch");
         _=RecordingJournalValidation.Validate(m,staging,Read);
     }
     public string Publish(RecordingManifest manifest)
@@ -148,10 +167,10 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             catch{poisoned=true;throw;}
             frozenManifest=text;
         }
-        handle?.Dispose();handle=null;
+        handle?.Dispose();handle=null;gapHandle?.Dispose();gapHandle=null;
         if(!mediaPublished){fault(StoreOperation.MoveMedia);Check(media);CheckTree(Path.Combine(staging,"media"));Directory.Move(Path.Combine(staging,"media"),media);mediaPublished=true;}
         fault(StoreOperation.PublishManifest);Check(metadata);CheckTree(Path.Combine(staging,"metadata"));Directory.Move(Path.Combine(staging,"metadata"),metadata);manifestPublished=true;
         return Path.Combine(metadata,"manifest.json");
     }
-    public void Dispose(){handle?.Dispose();handle=null;closed=true;}
+    public void Dispose(){handle?.Dispose();handle=null;gapHandle?.Dispose();gapHandle=null;closed=true;}
 }

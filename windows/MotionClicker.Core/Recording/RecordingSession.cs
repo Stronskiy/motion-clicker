@@ -9,11 +9,11 @@ public sealed class RecordingSession
     {
         public ClockAnchor? Clock;
         public long? Zero,LastTicks;
-        public long Count,End;
-        public List<RecordingGap> Gaps=[];
+        public long Count,End,GapCount;
+        public RecordingGap[] Gaps=[];
         public Terminal? Terminal;
         public string? SourceFailure;
-        public StreamState Copy()=>new(){Clock=Clock,Zero=Zero,LastTicks=LastTicks,Count=Count,End=End,Gaps=[..Gaps],Terminal=Terminal,SourceFailure=SourceFailure};
+        public StreamState Copy()=>new(){Clock=Clock,Zero=Zero,LastTicks=LastTicks,Count=Count,End=End,GapCount=GapCount,Gaps=Gaps,Terminal=Terminal,SourceFailure=SourceFailure};
     }
     public RecordingState State { get; private set; } = RecordingState.Preparing;
     private RecordingManifest? result;
@@ -115,6 +115,14 @@ public sealed class RecordingSession
         try{journal.Append(new((int)count,e,time,action,group));}catch{journalFailed=true;throw;}
         count++;duration=Math.Max(duration,nextDuration);
     }
+    private void AppendGap(RecordingGap gap,string monitorSlotId,StreamState stream)
+    {
+        var next=checked(stream.GapCount+1);
+        try{journal.AppendGap(new(monitorSlotId,gap));}catch{journalFailed=true;throw;}
+        stream.GapCount=next;
+        // Immutable bounded preview: ordinary frame/idle copies share it without allocation.
+        if(stream.Gaps.Length<64)stream.Gaps=[..stream.Gaps,gap];
+    }
     public void AcceptedFrame(string monitorSlotId,long sourceTicks,long encodedTimeUs,long durationUs)
     {
         if(State is not (RecordingState.Recording or RecordingState.Finalizing))return;
@@ -123,10 +131,12 @@ public sealed class RecordingSession
             var time=Mapper(s).Map(sourceTicks);if(time<0)return;
             Require(s.LastTicks is null||sourceTicks>s.LastTicks,"Reversed or duplicate frame timestamp");
             Require(encodedTimeUs>=s.End&&durationUs>0,"Invalid encoded frame range");
-            if(s.Zero is null){Require(encodedTimeUs==0,"First encoded frame must start at zero");s.Zero=time;if(time>0)s.Gaps.Add(new(0,time,GapKind.Leading));}
-            var expected=checked(s.Zero.Value+encodedTimeUs);var error=checked(time-expected);Require(error is >=-1 and <=1,"Encoder rebased source timing");
-            s.End=checked(encodedTimeUs+durationUs);duration=Math.Max(duration,checked(s.Zero.Value+s.End));
-            s.Count=checked(s.Count+1);s.LastTicks=sourceTicks;streams[monitorSlotId]=s;
+            var zero=s.Zero??time;
+            if(s.Zero is null)Require(encodedTimeUs==0,"First encoded frame must start at zero");
+            var expected=checked(zero+encodedTimeUs);var error=checked(time-expected);Require(error is >=-1 and <=1,"Encoder rebased source timing");
+            var end=checked(encodedTimeUs+durationUs);var nextDuration=checked(zero+end);var nextCount=checked(s.Count+1);
+            if(s.Zero is null&&time>0)AppendGap(new(0,time,GapKind.Leading),monitorSlotId,s);
+            s.Zero=zero;s.End=end;s.Count=nextCount;s.LastTicks=sourceTicks;duration=Math.Max(duration,nextDuration);streams[monitorSlotId]=s;
         });
     }
     public void Idle(string monitorSlotId,long sourceTicks)
@@ -139,7 +149,7 @@ public sealed class RecordingSession
         CheckedRecording(()=>{
             var s=Stream(monitorSlotId);Require(s.Terminal is null&&kind is GapKind.Dropped or GapKind.Backpressure,"Invalid gap report");
             var m=Mapper(s);var start=m.Map(startTicks);var end=m.Map(endTicks);Require(end>start,"Invalid gap range");if(end<=0)return;
-            s.Gaps.Add(new(Math.Max(0,start),end,kind,reason));streams[monitorSlotId]=s;duration=Math.Max(duration,end);
+            AppendGap(new(Math.Max(0,start),end,kind,reason),monitorSlotId,s);streams[monitorSlotId]=s;duration=Math.Max(duration,end);
         });
     }
     public void SourceFailed(string monitorSlotId,long hostTimeUs,string reason)
@@ -147,7 +157,7 @@ public sealed class RecordingSession
         if(State==RecordingState.Preparing){_=Stream(monitorSlotId);PreparationFailed(reason);return;}
         if(State is not (RecordingState.Recording or RecordingState.Finalizing))return;
         CheckedRecording(()=>{
-            var s=Stream(monitorSlotId);var time=Math.Max(0,checked(hostTimeUs-epoch));s.SourceFailure=reason;s.Gaps.Add(new(time,time,GapKind.SourceFailure,reason));streams[monitorSlotId]=s;
+            var s=Stream(monitorSlotId);var time=Math.Max(0,checked(hostTimeUs-epoch));AppendGap(new(time,time,GapKind.SourceFailure,reason),monitorSlotId,s);s.SourceFailure=reason;streams[monitorSlotId]=s;
             duration=Math.Max(duration,time);Interrupt(reason);
         });
     }
@@ -171,7 +181,6 @@ public sealed class RecordingSession
     }
     private void FinalizeRecording()
     {
-        try{journal.Flush();}catch(Exception e){journalFailed=true;Interrupt(e.Message,true);}
         var media=new List<StreamManifest>();
         foreach(var target in targets)
         {
@@ -179,10 +188,11 @@ public sealed class RecordingSession
             var successful=t.Status==WriterStatus.Succeeded&&s.Count>0&&t.Duration>=s.End&&s.Zero is not null;
             var failure=t.Reason;
             if(s.Zero is long zero){try{duration=Math.Max(duration,checked(zero+t.Duration));}catch(OverflowException){successful=false;failure="Writer duration overflow";Interrupt(failure,true);}}
-            var gaps=new List<RecordingGap>(s.Gaps);if(!successful)gaps.Add(new(duration,duration,GapKind.EncoderFailure,failure??"Empty or incomplete writer"));
-            if(gaps.Count>0)warnings.Add($"Stream {id} contains gaps or failures");
-            media.Add(new(id,$"media/{takeId}/{id}.mp4",s.Clock!,s.Zero,t.Duration,s.Count,gaps.ToArray(),successful?WriterStatus.Succeeded:WriterStatus.Failed,0,$"takes/{takeId}/gaps.jsonl",successful?s.SourceFailure:failure??"Empty or incomplete writer"));
+            if(!successful){try{AppendGap(new(duration,duration,GapKind.EncoderFailure,failure??"Empty or incomplete writer"),id,s);}catch(Exception e){journalFailed=true;Interrupt(e.Message,true);}}
+            if(s.GapCount>0)warnings.Add($"Stream {id} contains gaps or failures");
+            media.Add(new(id,$"media/{takeId}/{id}.mp4",s.Clock!,s.Zero,t.Duration,s.Count,s.Gaps,successful?WriterStatus.Succeeded:WriterStatus.Failed,s.GapCount,$"takes/{takeId}/gaps.jsonl",successful?s.SourceFailure:failure??"Empty or incomplete writer"));
         }
+        try{journal.Flush();}catch(Exception e){journalFailed=true;Interrupt(e.Message,true);}
         State=terminalState;result=new(1,takeId,State,epoch,duration,targets.Select(t=>t.Slot).ToArray(),media.ToArray(),count,incomplete.Order(StringComparer.Ordinal).ToArray(),warnings.ToArray(),reason);
     }
     public RecordingResult Project()
