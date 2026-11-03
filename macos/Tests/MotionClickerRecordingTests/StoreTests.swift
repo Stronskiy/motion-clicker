@@ -132,3 +132,30 @@ extension StoreTests {
         XCTAssertThrowsError(try store.publish(manifest: XCTUnwrap(s.result)));XCTAssertFalse(store.recovery.manifestPublished);try store.close()
     }
 }
+
+extension StoreTests {
+    func testRejectedOverflowDownDoesNotInventOwnershipAndPublishesPriorTake() throws {
+        let r = try root(), store = try RecordingStore(root: r,takeId: "take")
+        let s = try RecordingSession(takeId: "take",targets: recordingTargets(),journal: store)
+        for id in ["left","right"] {
+            try s.sourceReady(monitorSlotId: id,clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 0,ticksPerSecond: 1000000))
+            try Data("synthetic-\(id)".utf8).write(to: store.mediaFile(monitorSlotId: id))
+        }
+        try s.eventTapReady();try s.begin(epochHostUs: 0);try frames(s)
+        try s.receive(event: CapturedPointerEvent(hostTimeUs: 10,nativePosition: Point(x: 1,y: 1),kind: .buttonDown,button: .left))
+        try s.receive(event: CapturedPointerEvent(hostTimeUs: 20,nativePosition: Point(x: 1,y: 1),kind: .buttonUp,button: .left))
+        var before: [RawPointerRecord] = [];try store.read { before.append($0) }
+        XCTAssertEqual(before.count,2)
+        XCTAssertThrowsError(try s.receive(event: CapturedPointerEvent(hostTimeUs: .max,nativePosition: Point(x: 1,y: 1),kind: .buttonDown,button: .left)))
+        try finishSession(s);let m = try XCTUnwrap(s.result)
+        XCTAssertEqual(m.state,.failed);XCTAssertEqual(m.rawEventCount,2);XCTAssertEqual(m.durationUs,251000)
+        XCTAssertTrue(m.incompleteGroupIds.isEmpty)
+        let path = try store.publish(manifest: m)
+        XCTAssertEqual(try JSONDecoder().decode(RecordingManifest.self,from: Data(contentsOf: path)),m)
+        var after: [RawPointerRecord] = [];try store.read { after.append($0) };XCTAssertEqual(after,before)
+        XCTAssertEqual(try s.project().events,before.compactMap(\.action))
+        for id in ["left","right"] { XCTAssertEqual(try Data(contentsOf: r.appendingPathComponent("media/take/\(id).mp4")),Data("synthetic-\(id)".utf8)) }
+        XCTAssertEqual(try String(contentsOf: r.appendingPathComponent("project.json"),encoding: .utf8),"previous-save")
+        try store.close()
+    }
+}

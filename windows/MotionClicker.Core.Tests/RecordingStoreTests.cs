@@ -93,4 +93,20 @@ public sealed class RecordingStoreTests : IDisposable
         Assert.ThrowsAny<Exception>(()=>s.ReportGap("left",1000,2000,GapKind.Dropped));RecordingSessionTests.Finish(s);Assert.Equal(RecordingState.Failed,s.State);
         Assert.ThrowsAny<Exception>(()=>store.Publish(s.Result!));Assert.False(store.Recovery.ManifestPublished);
     }
+
+    [Fact] public void RejectedOverflowDownDoesNotInventOwnershipAndPublishesPriorTake()
+    {
+        var r=Root();using var store=new RecordingStore(r,"take");var s=new RecordingSession("take",RecordingSessionTests.Targets(),store);
+        foreach(var id in new[]{"left","right"}){s.SourceReady(id,new(0,0,1000000));File.WriteAllText(store.MediaFile(id),$"synthetic-{id}");}
+        s.EventTapReady();s.Begin(0);RecordingSessionTests.Frames(s);
+        s.Receive(new(10,new(1,1),ActionKind.ButtonDown,MouseButton.Left));s.Receive(new(20,new(1,1),ActionKind.ButtonUp,MouseButton.Left));
+        var before=new List<RawPointerRecord>();store.Read(before.Add);Assert.Equal(2,before.Count);
+        Assert.ThrowsAny<Exception>(()=>s.Receive(new(long.MaxValue,new(1,1),ActionKind.ButtonDown,MouseButton.Left)));
+        RecordingSessionTests.Finish(s);var m=s.Result!;Assert.Equal(RecordingState.Failed,m.State);Assert.Equal(2,m.RawEventCount);Assert.Equal(251000,m.DurationUs);
+        var path=store.Publish(m);Assert.Empty(m.IncompleteGroupIds);
+        Assert.Equal(RecordingJson.Serialize(m),RecordingJson.Serialize(RecordingJson.Deserialize<RecordingManifest>(File.ReadAllText(path))));
+        var after=new List<RawPointerRecord>();store.Read(after.Add);Assert.Equal(before,after);Assert.Equal(before.Select(x=>x.Action),s.Project().Events);
+        foreach(var id in new[]{"left","right"})Assert.Equal($"synthetic-{id}",File.ReadAllText(Path.Combine(r,"media","take",$"{id}.mp4")));
+        Assert.Equal("previous-save",File.ReadAllText(Path.Combine(r,"project.json")));
+    }
 }
