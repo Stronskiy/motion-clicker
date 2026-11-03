@@ -8,13 +8,15 @@ final class FakeMonitors: MonitorProvider {
     func displays() -> [RuntimeDisplay] { values }
 }
 final class FakeBackend: InputBackend {
+    var physicalButtonsDown = false
     var ready = true
     var interference: UInt64 = 0
     var calls: [String] = []
     var points: [Point] = []
     var failSend = false
     var failRelease = false
-    func position() throws -> Point { Point(x: -150, y: 50) }
+    var cursor=Point(x:-150,y:50)
+    func position() throws -> Point { cursor }
     func send(_ step: RuntimeStep, at point: Point) throws {
         calls.append(step.kind.rawValue); points.append(point)
         if failSend { throw RuntimeFailure.unsafe("send failure") }
@@ -94,4 +96,37 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(r.snapshot.state,.stopped)
         XCTAssertEqual(PreviewRunner.events(RunProgram(steps:p.steps,slots:p.slots,periodUs:20_000,count:nil),limit:3).count,3)
     }
+    func testPreheldPhysicalButtonBlocksStartWithoutRelease() {
+        let (_,_,b,r,p)=fixture(); b.physicalButtonsDown=true
+        XCTAssertThrowsError(try r.start(p,mapping:["slot":"display"],hotkeyReady:true)); XCTAssertTrue(b.calls.isEmpty)
+    }
+    func testInvalidLaterPointBlocksAllInputAtPreflight() {
+        let (_,_,b,r,p)=fixture()
+        let invalid=RunProgram(steps:p.steps+[RuntimeStep(timeUs:2000,slot:"slot",point:Point(x:100,y:0),kind:.move)],slots:p.slots)
+        XCTAssertThrowsError(try r.start(invalid,mapping:["slot":"display"],hotkeyReady:true)); XCTAssertTrue(b.calls.isEmpty)
+    }
+    func testArmDelayAllowsPositioningThenStopsPhysicalInputWhileRunning() throws {
+        let (c,_,b,r,p)=fixture(); try r.start(p,mapping:["slot":"display"],delayUs:1000,hotkeyReady:true)
+        b.interference=2; c.nowUs=500; r.pump(); c.nowUs=1100; r.pump()
+        XCTAssertEqual(b.calls,["buttonDown"])
+        b.interference=3; c.nowUs=1150; r.pump(); XCTAssertEqual(b.calls,["buttonDown","release"])
+    }
+    func testDurationCutoffReleasesHoldAndNeverContinues() throws {
+        let (c,_,b,r,p)=fixture(); let duration=RunProgram(steps:p.steps,slots:p.slots,periodUs:20000,count:nil,durationUs:500)
+        try r.start(duration,mapping:["slot":"display"],hotkeyReady:true)
+        c.nowUs=100; r.pump(); c.nowUs=500; r.pump(); c.nowUs=20000; r.pump()
+        XCTAssertEqual(b.calls,["buttonDown","release"]); XCTAssertEqual(r.snapshot.state,.stopped)
+    }
+    func testCurrentPositionOutsideSelectedDisplayFailsWithoutInjection() throws {
+        let (c,_,b,r,p)=fixture()
+        let current=RunProgram(steps:p.steps.map{ RuntimeStep(timeUs:$0.timeUs,slot:$0.slot,point:nil,kind:$0.kind,button:$0.button) },slots:p.slots)
+        b.cursor=Point(x:300,y:300); try r.start(current,mapping:["slot":"display"],hotkeyReady:true); c.nowUs=100; r.pump()
+        XCTAssertEqual(r.snapshot.state,.failed); XCTAssertTrue(b.calls.isEmpty)
+    }
+    func testDoubleClickRuntimeMetadataAndImmutableQuickTemplate() throws {
+        let (_,_,_,_,p)=fixture()
+        let quick=try RunProgram.quick(slots:p.slots,points:[("slot",Point(x:25,y:25))],button:.middle,doubleClick:true,intervalUs:20000,count:2,durationUs:nil)
+        XCTAssertEqual(quick.steps.map(\.clickCount),[1,1,2,2]); XCTAssertEqual(PreviewRunner.events(quick).count,8)
+    }
+
 }

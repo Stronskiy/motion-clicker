@@ -11,6 +11,7 @@ public sealed class RunnerTests {
         public IReadOnlyList<RuntimeDisplay> Displays()=>Values.ToArray();
     }
     private sealed class Backend : IInputBackend {
+        public bool PhysicalButtonsDown { get; set; }
         public bool Ready { get; set; }=true;
         public ulong Interference { get; set; }
         public List<string> Calls { get; }=[];
@@ -82,4 +83,25 @@ public sealed class RunnerTests {
         Assert.Equal(["ButtonDown","ButtonUp","ButtonDown","ButtonUp"],f.Backend.Calls); Assert.Equal(RunnerState.Stopped,f.Runner.Snapshot.State);
         Assert.Equal(3,PreviewRunner.Events(new(f.Program.Steps,f.Program.Slots,20000,null),3).Count);
     }
+    [Fact] public void PreheldPhysicalButtonBlocksWithoutRelease() {
+        var f=new Fixture(); f.Backend.PhysicalButtonsDown=true;
+        Assert.Throws<InvalidOperationException>(f.Start); Assert.Empty(f.Backend.Calls);
+    }
+    [Fact] public void InvalidLaterPointBlocksAllInput() {
+        var f=new Fixture(); var bad=new RunProgram(f.Program.Steps.Append(new RuntimeStep(2000,"slot",new(100,0),ActionKind.Move)),f.Program.Slots);
+        Assert.Throws<InvalidOperationException>(()=>f.Runner.Start(bad,f.Map,hotkeyReady:true)); Assert.Empty(f.Backend.Calls);
+    }
+    [Fact] public void ArmDelayAllowsPositioningThenInterferenceStops() {
+        var f=new Fixture(); f.Runner.Start(f.Program,f.Map,1000,true); f.Backend.Interference=2; f.Pump(500); f.Pump(1100);
+        Assert.Equal(["ButtonDown"],f.Backend.Calls); f.Backend.Interference=3; f.Pump(1150); Assert.Equal(["ButtonDown","release"],f.Backend.Calls);
+    }
+    [Fact] public void DurationCutoffReleasesAndNeverContinues() {
+        var f=new Fixture(); f.Runner.Start(new(f.Program.Steps,f.Program.Slots,20000,null,500),f.Map,hotkeyReady:true); f.Pump(100); f.Pump(500); f.Pump(20000);
+        Assert.Equal(["ButtonDown","release"],f.Backend.Calls); Assert.Equal(RunnerState.Stopped,f.Runner.Snapshot.State);
+    }
+    [Fact] public void DoubleClickHasExplicitNativeCountsAndFinitePreview() {
+        var f=new Fixture(); var p=ProgramCompiler.Quick(f.Program.Slots,new[]{("slot",(Point?)new Point(25,25),20000L)},MouseButton.Middle,true,2,null);
+        Assert.Equal(new[]{1,1,2,2},p.Steps.Select(s=>s.ClickCount)); Assert.Equal(8,PreviewRunner.Events(p).Count);
+    }
+
 }

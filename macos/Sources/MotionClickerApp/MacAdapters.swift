@@ -33,8 +33,10 @@ final class MacInput: InputBackend, @unchecked Sendable {
     private var generation: UInt64 = 0
     private var activeSession = true
     private var tapHealthy = false
+    private var heldButton:MouseButton?
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
+    var physicalButtonsDown: Bool { [.left,.right,.center].contains { CGEventSource.buttonState(.hidSystemState,button:$0) } }
     var interference: UInt64 { lock.lock(); defer { lock.unlock() }; return generation }
     var ready: Bool {
         lock.lock(); let healthy = tapHealthy && activeSession; lock.unlock()
@@ -67,25 +69,28 @@ final class MacInput: InputBackend, @unchecked Sendable {
         return Point(x:e.location.x,y:e.location.y)
     }
     func send(_ step:RuntimeStep,at point:Point) throws {
-        let button: CGMouseButton = step.button == .right ? .right : (step.button == .middle ? .center : .left)
+        let effectiveButton=step.button ?? heldButton
+        let button: CGMouseButton = effectiveButton == .right ? .right : (effectiveButton == .middle ? .center : .left)
         let type: CGEventType
         switch step.kind {
-        case .move: type = step.button == .right ? .rightMouseDragged : (step.button == .middle ? .otherMouseDragged : .mouseMoved)
+        case .move: type = heldButton == .right ? .rightMouseDragged : (heldButton == .middle ? .otherMouseDragged : (heldButton == .left ? .leftMouseDragged : .mouseMoved))
         case .buttonDown: type = button == .left ? .leftMouseDown : (button == .right ? .rightMouseDown : .otherMouseDown)
         case .buttonUp: type = button == .left ? .leftMouseUp : (button == .right ? .rightMouseUp : .otherMouseUp)
         case .scroll:
-            guard let event = CGEvent(scrollWheelEvent2Source:nil,units:.pixel,wheelCount:2,wheel1:Int32(clamping:Int64(-step.deltaY.rounded())),wheel2:Int32(clamping:Int64(-step.deltaX.rounded())),wheel3:0) else { throw RuntimeFailure.unsafe("Cannot create scroll event") }
+            guard let event = CGEvent(scrollWheelEvent2Source:nil,units:.pixel,wheelCount:2,wheel1:Int32(max(Double(Int32.min),min(Double(Int32.max),-step.deltaY.rounded()))),wheel2:Int32(max(Double(Int32.min),min(Double(Int32.max),-step.deltaX.rounded()))),wheel3:0) else { throw RuntimeFailure.unsafe("Cannot create scroll event") }
             event.location=CGPoint(x:point.x,y:point.y); post(event); return
         }
         guard let event=CGEvent(mouseEventSource:nil,mouseType:type,mouseCursorPosition:CGPoint(x:point.x,y:point.y),mouseButton:button) else { throw RuntimeFailure.unsafe("Cannot allocate mouse event") }
         event.setIntegerValueField(.mouseEventClickState,value:Int64(step.clickCount)); post(event)
+        if step.kind == .buttonDown { heldButton=step.button }; if step.kind == .buttonUp { heldButton=nil }
     }
     private func post(_ event:CGEvent) {
         event.setIntegerValueField(.eventSourceUserData,value:Self.tag)
         event.post(tap:.cghidEventTap) // API has no acknowledgment; this reports dispatch attempts only.
     }
     func release(_ button:MouseButton,at point:Point) throws {
-        try send(RuntimeStep(timeUs:0,slot:"release",point:point,kind:.buttonUp,button:button),at:point)
+        let current=(try? position()) ?? point
+        try send(RuntimeStep(timeUs:0,slot:"release",point:current,kind:.buttonUp,button:button),at:current)
     }
     deinit { if let tap { CFMachPortInvalidate(tap) } }
 }
@@ -112,16 +117,19 @@ final class MacInput: InputBackend, @unchecked Sendable {
 final class RunWorker: @unchecked Sendable {
     private let queue=DispatchQueue(label:"MotionClicker.runner",qos:.userInteractive)
     private let wake=DispatchSemaphore(value:0)
+    private let lock=NSLock()
+    private var cancelled=false
+    private var isCancelled:Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     let runner: SafeRunner
     init(_ runner:SafeRunner) { self.runner=runner }
     func launch() {
         queue.async { [self] in
-            while [.armed,.running].contains(runner.snapshot.state) {
+            while !isCancelled && [.armed,.running].contains(runner.snapshot.state) {
                 runner.pump()
                 // Cancellable wait, independent of SwiftUI rendering. Never catch up after a stall.
                 _ = wake.wait(timeout:.now() + .microseconds(1_000))
             }
         }
     }
-    func stop(_ reason:String="Stopped",paused:Bool=false) { runner.stop(reason,paused:paused); wake.signal() }
+    func stop(_ reason:String="Stopped",paused:Bool=false) { lock.lock(); cancelled=true; lock.unlock(); runner.stop(reason,paused:paused); wake.signal() }
 }

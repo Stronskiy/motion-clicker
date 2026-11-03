@@ -5,6 +5,7 @@ public interface IMonitorProvider { IReadOnlyList<RuntimeDisplay> Displays(); }
 public interface IMonotonicClock { long NowUs { get; } }
 public interface IInputBackend {
     bool Ready { get; }
+    bool PhysicalButtonsDown { get; }
     ulong Interference { get; }
     Point Position();
     void Send(RuntimeStep step, Point point);
@@ -40,7 +41,7 @@ public sealed class SafeRunner(IMonotonicClock clock, IMonitorProvider monitors,
     public void Start(RunProgram value,IReadOnlyDictionary<string,string> map,long delayUs=0,bool hotkeyReady=false) {
         lock(gate) {
             if(owned!=null || state is RunnerState.Running or RunnerState.Armed) throw new InvalidOperationException("Stop and resolve owned release before restart");
-            if(!hotkeyReady || !backend.Ready) throw new InvalidOperationException("Emergency hotkey and input capability must be available");
+            if(!hotkeyReady || !backend.Ready || backend.PhysicalButtonsDown) throw new InvalidOperationException("Emergency hotkey and input capability must be available");
             Validate(value);
             var displays=monitors.Displays().ToArray();
             if(value.Steps.Count==0 || delayUs<0 || clock.NowUs>long.MaxValue-delayUs) throw new InvalidOperationException("Empty plan or invalid delay");
@@ -50,6 +51,10 @@ public sealed class SafeRunner(IMonotonicClock clock, IMonitorProvider monitors,
                     throw new InvalidOperationException("Map every monitor explicitly to matching size, scale and rotation");
             }
             if(map.Values.Distinct(StringComparer.Ordinal).Count()!=map.Count) throw new InvalidOperationException("Monitor slots require distinct runtime displays");
+            foreach(var step in value.Steps) if(step.Point is {} local) {
+                if(!map.TryGetValue(step.Slot,out var target)) throw new InvalidOperationException("Unresolved step monitor");
+                NativePoint(local,displays.First(d=>d.Id==target));
+            }
             program=value; mapping=new(map,StringComparer.Ordinal); topology=displays;
             epoch=checked(clock.NowUs+delayUs); cycle=0; index=0; dispatched=0; maxLag=0;
             initialInterference=backend.Interference; state=delayUs>0?RunnerState.Armed:RunnerState.Running;
@@ -60,9 +65,14 @@ public sealed class SafeRunner(IMonotonicClock clock, IMonitorProvider monitors,
         lock(gate) {
             if(state is not (RunnerState.Armed or RunnerState.Running) || program is not { } p) return;
             if(!backend.Ready) { Finish("Input permission or session lost",failed:true); return; }
-            if(backend.Interference!=initialInterference) { Finish("Physical input detected",failed:true); return; }
             if(!monitors.Displays().SequenceEqual(topology)) { Finish("Display topology changed; remap before restart",failed:true); return; }
             var now=clock.NowUs;
+            if(state==RunnerState.Armed) {
+                if(now<epoch) return;
+                if(backend.PhysicalButtonsDown) { Finish("Release physical mouse buttons before execution",failed:true); return; }
+                initialInterference=backend.Interference; state=RunnerState.Running;
+            }
+            if(backend.Interference!=initialInterference) { Finish("Physical input detected",failed:true); return; }
             if(now<epoch) return;
             if(p.DurationUs is { } duration && now-epoch>=duration) { Finish("Duration complete"); return; }
             long deadline;

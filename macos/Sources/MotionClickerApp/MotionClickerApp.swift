@@ -84,6 +84,9 @@ struct ClickPoint: Identifiable {
         guard !chosen.isEmpty, intervalMs.isFinite, intervalMs >= 20, intervalMs <= 86_400_000,
               count > 0, durationSeconds.isFinite, durationSeconds > 0, durationSeconds <= 604_800 else { throw RuntimeFailure.unsafe("Choose displays and valid limits; minimum interval is 20 ms") }
         let slots=chosen.map { MonitorSlot(id:$0.id,name:$0.name,geometry:$0.geometry) }
+        for point in points where !currentPosition {
+            guard let display=chosen.first(where:{$0.id==point.displayID}) else { throw RuntimeFailure.unsafe("Choose a selected display for each point") }; _ = try SafeRunner.nativePoint(Point(x:point.x,y:point.y),display:display)
+        }
         let targets:[(String,Point?)]=currentPosition ? [(chosen[0].id,nil)] : points.map { ($0.displayID,Point(x:$0.x,y:$0.y)) }
         guard targets.allSatisfy({ selected.contains($0.0) }) else { throw RuntimeFailure.unsafe("Each point must target a selected display") }
         let basic=try RunProgram.quick(slots:slots,points:targets,button:button,doubleClick:doubleClick,intervalUs:Int64(intervalMs*1_000),count:limit == "Count" ? Int64(count) : nil,durationUs:limit == "Duration" ? Int64(durationSeconds*1_000_000) : nil)
@@ -108,9 +111,8 @@ struct ClickPoint: Identifiable {
             let plan=try program()
             try emergency.register(keyCode:hotkey)
             try backend.beginMonitoring()
-            let runner=SafeRunner(clock:ContinuousClock(),monitors:provider,backend:backend)
+            let runner=worker?.runner ?? SafeRunner(clock:ContinuousClock(),monitors:provider,backend:backend)
             // Keep the runner across restarts if a release failed: creating a new one must not erase ownership.
-            if let old=worker, old.runner.snapshot.reason.contains("Owned release failed") { throw RuntimeFailure.unsafe("Retry Stop to resolve the previous owned release") }
             let explicitMapping = mode == "Project" ? mapping : Dictionary(uniqueKeysWithValues:plan.slots.map { ($0.id,$0.id) })
             try runner.start(plan,mapping:explicitMapping,delayUs:Int64(delaySeconds*1_000_000),hotkeyReady:true)
             worker=RunWorker(runner); worker?.launch(); poll()
@@ -231,7 +233,7 @@ struct MainView: View {
             }
             if model.currentPosition {
                 LabeledContent("Interval (ms)") { TextField("100",value:$model.intervalMs,format:.number).frame(width:100) }
-                Text("The pointer must stay on a selected display. Moving it during execution stops the run.").font(.caption).foregroundStyle(.secondary)
+                Text("During the start delay, position the pointer on a selected display. Moving it after execution begins stops the run.").font(.caption).foregroundStyle(.secondary)
             } else {
                 VStack(alignment:.leading,spacing:10) {
                     HStack { Text("Ordered points").font(.headline); Spacer(); Button("Add Point") { if let id=model.displays.first(where:{model.selected.contains($0.id)})?.id { model.points.append(ClickPoint(displayID:id)) } } }

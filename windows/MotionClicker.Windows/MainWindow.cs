@@ -46,7 +46,9 @@ internal sealed class MainWindow : Window {
     private sealed class PointRow {
         public Guid Id { get; }=Guid.NewGuid();
         public ComboBox Display { get; }=new() { Width=230,Header="Display" };
-        public NumberBox X { get; }=Number("X",100),Y { get; }=Number("Y",100),Pause { get; }=Number("Pause (ms)",100);
+        public NumberBox X { get; }=Number("X",100);
+        public NumberBox Y { get; }=Number("Y",100);
+        public NumberBox Pause { get; }=Number("Pause (ms)",100);
     }
     public MainWindow() {
         Title="Motion Clicker";
@@ -170,11 +172,10 @@ internal sealed class MainWindow : Window {
     private async void Start() {
         try {
             if(Active) return;
-            if(worker?.Runner.Snapshot.Reason.Contains("Owned release failed",StringComparison.Ordinal)==true) throw new InvalidOperationException("Retry Stop to resolve the previous owned release");
             var plan=Program(); var startDelay=Microseconds(delay,86400);
             emergency.Register(hotkey.SelectedIndex==0?0x77u:0x78u); backend.BeginMonitoring();
             var map=projectMode?mapping.ToDictionary(p=>p.Key,p=>(p.Value.SelectedItem as RuntimeDisplay)?.Id??""):plan.Slots.ToDictionary(s=>s.Id,s=>s.Id);
-            var runner=new SafeRunner(new MonotonicClock(),monitors,backend); runner.Start(plan,map,startDelay,true);
+            var runner=worker?.Runner??new SafeRunner(new MonotonicClock(),monitors,backend); runner.Start(plan,map,startDelay,true);
             worker=new(runner); worker.Launch(); Poll();
         } catch(Exception e) { emergency.Unregister(); await Error($"Start blocked: {e.Message}"); }
     }

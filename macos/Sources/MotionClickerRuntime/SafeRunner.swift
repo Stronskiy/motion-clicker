@@ -14,6 +14,7 @@ public protocol MonitorProvider { func displays() -> [RuntimeDisplay] }
 public protocol MonotonicClock { var nowUs: Int64 { get } }
 public protocol InputBackend {
     var ready: Bool { get }
+    var physicalButtonsDown: Bool { get }
     var interference: UInt64 { get }
     func position() throws -> Point
     func send(_ step: RuntimeStep, at: Point) throws
@@ -79,7 +80,7 @@ public final class SafeRunner: @unchecked Sendable {
     public func start(_ program: RunProgram, mapping: [String: String], delayUs: Int64 = 0, hotkeyReady: Bool) throws {
         gate.lock(); defer { gate.unlock() }
         guard owned == nil, state != .running, state != .armed else { throw RuntimeFailure.unsafe("Stop and resolve owned release before restart.") }
-        guard hotkeyReady, backend.ready else { throw RuntimeFailure.unsafe("Emergency hotkey and input permissions must be available.") }
+        guard hotkeyReady, backend.ready, !backend.physicalButtonsDown else { throw RuntimeFailure.unsafe("Emergency hotkey and input permissions must be available.") }
         try Self.validate(program)
         let displays = monitors.displays()
         guard !program.steps.isEmpty, delayUs >= 0, clock.nowUs <= Int64.max - delayUs else { throw RuntimeFailure.unsafe("Empty plan or invalid start delay.") }
@@ -92,6 +93,12 @@ public final class SafeRunner: @unchecked Sendable {
             }
         }
         guard Set(mapping.values).count == mapping.count else { throw RuntimeFailure.unsafe("Monitor slots require distinct runtime displays.") }
+        for step in program.steps {
+            if let local = step.point {
+                guard let id=mapping[step.slot], let display=displays.first(where:{$0.id==id}) else { throw RuntimeFailure.unsafe("Unresolved step monitor") }
+                _ = try Self.nativePoint(local,display:display)
+            }
+        }
         self.program = program; self.mapping = mapping; topology = displays
         epoch = clock.nowUs + delayUs; cycle = 0; index = 0; dispatched = 0; maxLag = 0
         initialInterference = backend.interference; state = delayUs > 0 ? .armed : .running
@@ -101,9 +108,14 @@ public final class SafeRunner: @unchecked Sendable {
         gate.lock(); defer { gate.unlock() }
         guard state == .armed || state == .running, let p = program else { return }
         guard backend.ready else { finish("Input permission or session lost", failed: true); return }
-        guard backend.interference == initialInterference else { finish("Physical input detected", failed: true); return }
         guard monitors.displays() == topology else { finish("Display topology changed; remap before restart", failed: true); return }
         let now = clock.nowUs
+        if state == .armed {
+            guard now >= epoch else { return }
+            guard !backend.physicalButtonsDown else { finish("Release physical mouse buttons before execution",failed:true); return }
+            initialInterference=backend.interference; state = .running
+        }
+        guard backend.interference == initialInterference else { finish("Physical input detected",failed:true); return }
         guard now >= epoch else { return }
         if let duration = p.durationUs, now - epoch >= duration { finish("Duration complete"); return }
         guard let offset = offsetFor(p, cycle: cycle, index: index), offset <= Int64.max - epoch else {

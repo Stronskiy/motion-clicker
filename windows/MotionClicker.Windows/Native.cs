@@ -34,6 +34,7 @@ internal static class Native {
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] internal static extern bool GetMonitorInfo(nint monitor,ref MONITORINFO info);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] internal static extern bool EnumDisplaySettings(string device,int mode,ref DEVMODE value);
     [DllImport("shcore.dll")] internal static extern int GetScaleFactorForMonitor(nint monitor,out int scale);
+    [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] internal static extern bool GetCursorPos(out POINT point);
     [DllImport("user32.dll")] internal static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll",SetLastError=true)] internal static extern uint SendInput(uint count,INPUT[] inputs,int size);
@@ -91,6 +92,7 @@ internal sealed class WinInput : IInputBackend,IDisposable {
         };
         keyboardProc=(code,wp,lp)=> { if(code>=0) Interlocked.Increment(ref interference); return Native.CallNextHookEx(keyboardHook,code,wp,lp); };
     }
+    public bool PhysicalButtonsDown => new[]{1,2,4}.Any(key=>(Native.GetAsyncKeyState(key)&0x8000)!=0);
     public ulong Interference => unchecked((ulong)Interlocked.Read(ref interference));
     public bool Ready {
         get {
@@ -136,7 +138,12 @@ internal sealed class WinInput : IInputBackend,IDisposable {
         if(Native.SendInput((uint)inputs.Count,inputs.ToArray(),Marshal.SizeOf<Native.INPUT>())!=inputs.Count)
             throw new Win32Exception(Marshal.GetLastWin32Error(),"SendInput failed or partially inserted events; elevated/secure targets are unsupported");
     }
-    public void Release(MouseButton button,Point point)=>Send(new(0,"release",point,ActionKind.ButtonUp,button),point);
+    public void Release(MouseButton button,Point point) {
+        // Emergency cleanup sends ONLY our owned up, without moving the physical user's pointer.
+        uint flag=button switch { MouseButton.Left=>4u,MouseButton.Right=>16u,_=>64u };
+        var input=new Native.INPUT { Type=0,Mouse=new() { Flags=flag,Extra=Tag } };
+        if(Native.SendInput(1,[input],Marshal.SizeOf<Native.INPUT>())!=1) throw new Win32Exception(Marshal.GetLastWin32Error(),"Owned release failed");
+    }
     public void Dispose() { healthy=false; if(hookThread!=0) Native.PostThreadMessage(hookThread,0x12,0,0); }
 }
 internal sealed class EmergencyHotkey : IDisposable {

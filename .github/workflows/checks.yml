@@ -32,7 +32,7 @@ jobs:
       - name: Build native WinUI application
         working-directory: windows
         run: |
-          dotnet restore MotionClicker.Windows/MotionClicker.Windows.csproj | Tee-Object -FilePath winui-restore.log
+          dotnet restore MotionClicker.Windows/MotionClicker.Windows.csproj --locked-mode | Tee-Object -FilePath winui-restore.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build MotionClicker.Windows/MotionClicker.Windows.csproj -c Release --no-restore -p:Platform=x64 | Tee-Object -FilePath winui-build.log
           exit $LASTEXITCODE
