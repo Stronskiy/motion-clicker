@@ -10,6 +10,7 @@ let package = Package(
         .target(name: "MotionClickerCore"),
         .target(name: "MotionClickerRuntime", dependencies: ["MotionClickerCore"]),
         .executableTarget(name: "MotionClickerApp", dependencies: ["MotionClickerCore", "MotionClickerRuntime"]),
+        .testTarget(name: "MotionClickerAppTests", dependencies: ["MotionClickerApp"]),
         .testTarget(name: "MotionClickerRuntimeTests", dependencies: ["MotionClickerRuntime", "MotionClickerCore"]),
         .testTarget(name: "MotionClickerCoreTests", dependencies: ["MotionClickerCore"])
     ]

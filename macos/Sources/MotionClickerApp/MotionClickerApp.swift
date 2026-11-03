@@ -265,7 +265,7 @@ struct MainView: View {
         VStack(alignment:.leading,spacing:14) {
             if let project=model.project {
                 ForEach(project.monitorSlots,id:\.id) { slot in
-                    Picker("\(slot.name) — \(Int(slot.geometry.size.width)) × \(Int(slot.geometry.size.height))",selection:Binding(get:{model.mapping[slot.id] ?? ""},set:{model.mapping[slot.id]=$0})) {
+                    Picker("\(slot.name) — \(DisplayFormatting.number(slot.geometry.size.width)) × \(DisplayFormatting.number(slot.geometry.size.height))",selection:Binding(get:{model.mapping[slot.id] ?? ""},set:{model.mapping[slot.id]=$0})) {
                         Text("Choose runtime display…").tag("")
                         ForEach(model.displays,id:\.id) { Text($0.name).tag($0.id) }
                     }
@@ -292,7 +292,7 @@ struct MainView: View {
                         VStack(alignment:.leading,spacing:6) {
                             ForEach(previewRows) { row in
                                 let event=row.event
-                                Text("\(Double(event.timeUs)/1000,specifier:"%.1f") ms  ·  \(event.kind.rawValue)  ·  \(event.slot)  ·  \(event.point.map { "(\(Int($0.x)), \(Int($0.y)))" } ?? "current pointer")").font(.caption.monospaced())
+                                Text("\(Double(event.timeUs)/1000,specifier:"%.1f") ms  ·  \(event.kind.rawValue)  ·  \(event.slot)  ·  \(event.point.map { "(\(DisplayFormatting.number($0.x)), \(DisplayFormatting.number($0.y)))" } ?? "current pointer")").font(.caption.monospaced())
                             }
                         }.frame(maxWidth:.infinity,alignment:.leading).padding(10)
                     }.frame(height:120)
