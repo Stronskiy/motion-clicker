@@ -1,0 +1,54 @@
+name: Core checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-core:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: windows/global.json
+      - name: Toolchain
+        working-directory: windows
+        run: dotnet --info | Tee-Object -FilePath dotnet-info.log
+      - name: Repository hygiene
+        run: python scripts/check-repository-hygiene.py
+      - name: Test pure core
+        working-directory: windows
+        run: dotnet test MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj -c Release --logger "trx;LogFileName=core.trx" --results-directory TestResults | Tee-Object -FilePath dotnet-test.log
+      - name: Resolved packages
+        if: always()
+        working-directory: windows
+        run: dotnet list MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj package --include-transitive | Tee-Object -FilePath dotnet-packages.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-core-evidence
+          path: |
+            windows/*.log
+            windows/TestResults/
+            windows/MotionClicker.Core.Tests/packages.lock.json
+  macos-core:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: swift --version | tee swift-info.log
+      - name: Repository hygiene
+        run: python3 scripts/check-repository-hygiene.py
+      - name: Build and test pure core
+        run: swift test --package-path macos -c release 2>&1 | tee swift-test.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: macos-core-evidence
+          path: swift-*.log
