@@ -41,7 +41,8 @@ jobs:
           dotnet restore MotionClicker.Windows/MotionClicker.Windows.csproj --locked-mode | Tee-Object -FilePath winui-restore.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build MotionClicker.Windows/MotionClicker.Windows.csproj -c Release --no-restore -p:Platform=x64 | Tee-Object -FilePath winui-build.log
-          exit $LASTEXITCODE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path "MotionClicker.Windows/bin/x64/Release/net10.0-windows10.0.26100.0/win-x64/Assets/MotionClicker.ico")) { throw "Runtime window icon missing from native build output" }
       - name: Resolved packages
         if: always()
         working-directory: windows
