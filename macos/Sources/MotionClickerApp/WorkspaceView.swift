@@ -9,6 +9,7 @@ struct WorkspaceView: View {
     @State private var focusedPoint: UUID?
     @State private var showPreview=true
     @State private var configuredQA=false
+    @State private var previewRequest=UUID()
     private let ticker=Timer.publish(every:0.1,on:.main,in:.common).autoconnect()
     var body: some View {
         NavigationSplitView {
@@ -20,19 +21,23 @@ struct WorkspaceView: View {
             GeometryReader { geometry in
                 VStack(spacing:0) {
                     HStack(alignment:.top,spacing:0) {
+                        ScrollViewReader { scroller in
                         ScrollView {
-                            VStack(alignment:.leading,spacing:20) {
+                            VStack(alignment:.leading,spacing:16) {
                                 header
                                 if model.mode == "Quick Click" { quickWorkspace } else { projectWorkspace }
                                 if geometry.size.width < 900 {
-                                    DisclosureGroup("Inspector") { InspectorView(model:model).padding(.top,12) }
+                                    DisclosureGroup("Inspector") { inspectorContents.padding(.top,12) }
                                 }
-                                previewSection
+                                previewSection.id("event-preview")
                             }.padding(24).frame(maxWidth:.infinity,alignment:.leading)
+                        }
+                        .onChange(of:previewRequest) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
+                        .onChange(of:model.preview.count) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
                         }
                         if geometry.size.width >= 900 {
                             Divider()
-                            ScrollView { InspectorView(model:model).padding(20) }.frame(width:290)
+                            ScrollView { inspectorContents.padding(20) }.frame(width:290)
                                 .background(.background.secondary)
                         }
                     }
@@ -115,12 +120,23 @@ struct WorkspaceView: View {
                             Text("\(DisplayFormatting.number(point.pauseMs)) ms").foregroundStyle(.secondary).monospacedDigit().frame(minWidth:60,alignment:.trailing)
                         }.font(.callout).padding(.vertical,3).tag(point.id)
                     }
-                }.listStyle(.bordered).frame(height:116)
-                if let id=focusedPoint, let index=model.points.firstIndex(where:{$0.id==id}) {
-                    PointEditor(point:$model.points[index],displays:model.displays.filter{model.selected.contains($0.id)},allDisplays:model.displays,
-                                moveUp:{model.move(id,by:-1)},moveDown:{model.move(id,by:1)},remove:{model.points.removeAll{$0.id==id}; focusedPoint=model.points.first?.id},first:index==0,last:index==model.points.count-1)
-                }
+                }.listStyle(.bordered).frame(height:CGFloat(min(4,model.points.count))*32+4)
+
             }
+        }
+    }
+    private var inspectorContents: some View {
+        VStack(alignment:.leading,spacing:16) {
+            Text("Inspector").font(.headline)
+            if model.mode == "Quick Click", !model.currentPosition, let id=focusedPoint,
+               let index=model.points.firstIndex(where:{$0.id==id}) {
+                Text("Point \(index+1)").font(.subheadline.weight(.semibold))
+                PointEditor(point:$model.points[index],displays:model.displays.filter{model.selected.contains($0.id)},allDisplays:model.displays,
+                            moveUp:{model.move(id,by:-1)},moveDown:{model.move(id,by:1)},remove:{model.points.removeAll{$0.id==id}; focusedPoint=model.points.first?.id},first:index==0,last:index==model.points.count-1)
+                    .disabled(model.active)
+                Divider()
+            }
+            InspectorView(model:model)
         }
     }
     private var projectWorkspace: some View {
@@ -163,11 +179,11 @@ struct WorkspaceView: View {
         VStack(alignment:.leading,spacing:10) {
             HStack(spacing:10) {
                 VStack(alignment:.leading,spacing:3) {
-                    Text(model.active ? "Run in progress" : "Ready to inspect or run").font(.callout.weight(.medium))
+                    Text(transportStatus).font(.callout.weight(.medium)).lineLimit(2).help(model.status)
                     Text("Emergency stop: ⌃⌥⌘ \(model.hotkey == UInt32(kVK_F8) ? "F8" : "F9")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { model.dryRun(); showPreview=true } label: { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
+                Button { model.dryRun(); showPreview=true; previewRequest=UUID() } label: { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
                 if model.active {
                     Button { model.stop("Paused — Run restarts from the beginning",paused:true) } label: { Label("Pause",systemImage:"pause.fill") }
                     Button(role:.destructive) { model.stop() } label: { Label("Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
@@ -184,6 +200,11 @@ struct WorkspaceView: View {
             }.font(.caption)
         }.padding(.horizontal,24).padding(.vertical,14).background(.bar)
     }
+    private var transportStatus: String {
+        if model.status.hasPrefix("Dry run") { return "Preview ready · \(model.preview.count) events · no input" }
+        if model.status.hasPrefix("Idle") { return "Ready to inspect or run" }
+        return model.status
+    }
     private func addPoint() {
         guard let id=model.displays.first(where:{model.selected.contains($0.id)})?.id else { return }
         let point=ClickPoint(displayID:id); model.points.append(point); focusedPoint=point.id
@@ -194,12 +215,21 @@ struct WorkspaceView: View {
         func value(_ key:String) -> String? { guard let i=args.firstIndex(of:key),args.indices.contains(i+1) else { return nil }; return args[i+1] }
         if let appearance=value("--appearance"),["light","dark"].contains(appearance) { NSApp.appearance=NSAppearance(named:appearance == "light" ? .aqua : .darkAqua) }
         if args.contains("--project-empty") { model.mode="Project" }
-        if args.contains("--preview"),!args.contains("--project-empty") { model.dryRun() }
-        if let width=value("--window-width").flatMap(Double.init),let height=value("--window-height").flatMap(Double.init),width.isFinite,height.isFinite {
-            Task { @MainActor in
-                try? await Task.sleep(for:.milliseconds(150))
-                NSApp.windows.first(where:{$0.title == "Motion Clicker"})?.setContentSize(NSSize(width:min(2400,max(980,width)),height:min(1600,max(720,height))))
-            }
+        if args.contains("--preview"),!args.contains("--project-empty") { model.dryRun(); previewRequest=UUID() }
+        let width=value("--window-width").flatMap(Double.init) ?? 1180
+        let height=value("--window-height").flatMap(Double.init) ?? 800
+        guard width.isFinite,height.isFinite else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for:.milliseconds(200))
+            guard let window=NSApp.windows.first(where:{$0.title == "Motion Clicker"}) else { return }
+            window.minSize=NSSize(width:980,height:720)
+            var frame=window.frame
+            frame.size=NSSize(width:min(2400,max(980,width)),height:min(1600,max(720,height)))
+            window.setFrame(frame,display:true)
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps:true)
+            if args.contains("--preview") { previewRequest=UUID() }
         }
     }
 }
@@ -215,30 +245,27 @@ private struct PointEditor: View {
     let last:Bool
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
+            Picker("Display",selection:$point.displayID) { ForEach(displays,id:\.id) { Text(displayTitle($0,displays:allDisplays)).tag($0.id) } }
+            coordinate("X",value:$point.x,unit:"pt")
+            coordinate("Y",value:$point.y,unit:"pt")
+            coordinate("Pause",value:$point.pauseMs,unit:"ms")
             HStack {
-                Picker("Display",selection:$point.displayID) { ForEach(displays,id:\.id) { Text(displayTitle($0,displays:allDisplays)).tag($0.id) } }.frame(maxWidth:230)
-                Spacer()
                 Button(action:moveUp) { Image(systemName:"arrow.up") }.disabled(first).help("Move point earlier").accessibilityLabel("Move point earlier")
                 Button(action:moveDown) { Image(systemName:"arrow.down") }.disabled(last).help("Move point later").accessibilityLabel("Move point later")
+                Spacer()
                 Button(role:.destructive,action:remove) { Image(systemName:"trash") }.help("Remove point").accessibilityLabel("Remove point")
             }
-            HStack(spacing:12) {
-                coordinate("X",value:$point.x,unit:"pt")
-                coordinate("Y",value:$point.y,unit:"pt")
-                coordinate("Pause",value:$point.pauseMs,unit:"ms")
-            }
-        }
+        }.font(.callout)
     }
     private func coordinate(_ label:String,value:Binding<Double>,unit:String) -> some View {
-        HStack(spacing:5) { Text(label); TextField(label,value:value,format:.number).textFieldStyle(.roundedBorder).frame(minWidth:45); Text(unit).foregroundStyle(.secondary) }.font(.callout)
+        HStack(spacing:5) { Text(label); Spacer(); TextField(label,value:value,format:.number).textFieldStyle(.roundedBorder).frame(width:100); Text(unit).foregroundStyle(.secondary).frame(width:20,alignment:.leading) }.font(.callout)
     }
 }
 
 private struct InspectorView: View {
     @Bindable var model:ClickerModel
     var body: some View {
-        VStack(alignment:.leading,spacing:20) {
-            Text("Inspector").font(.headline)
+        VStack(alignment:.leading,spacing:16) {
             if model.mode == "Quick Click" {
                 section("Click") {
                     Picker("Button",selection:$model.button) { Text("Left").tag(MouseButton.left); Text("Right").tag(MouseButton.right); Text("Middle").tag(MouseButton.middle) }

@@ -150,13 +150,13 @@ struct RunnerSnapshotView {
 @main struct MotionClickerApp: App {
     @State private var model=ClickerModel()
     var body: some Scene {
-        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:720) }
+        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:668) }
             .defaultSize(width:1180,height:800).windowResizability(.contentMinSize).windowToolbarStyle(.unified)
             .commands {
-                CommandGroup(replacing:.newItem) { Button("Open Project JSON…",action:model.loadProject).keyboardShortcut("o") }
+                CommandGroup(replacing:.newItem) { Button("Open Project JSON…",action:model.loadProject).keyboardShortcut("o").disabled(model.active) }
                 CommandMenu("Run") {
-                    Button("Preview",action:model.dryRun).keyboardShortcut("p",modifiers:[.command,.shift])
-                    Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift])
+                    Button("Preview",action:model.dryRun).keyboardShortcut("p",modifiers:[.command,.shift]).disabled(model.active)
+                    Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift]).disabled(model.active)
                     Button("Stop") { model.stop() }.keyboardShortcut(".")
                 }
             }

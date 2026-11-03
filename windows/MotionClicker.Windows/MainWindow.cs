@@ -19,6 +19,7 @@ internal sealed class MainWindow : Window {
     private IReadOnlyList<RuntimeDisplay> displays=[];
     private readonly NavigationView navigation=new() { PaneDisplayMode=NavigationViewPaneDisplayMode.Left,IsBackButtonVisible=NavigationViewBackButtonVisible.Collapsed,IsSettingsVisible=false,OpenPaneLength=184,IsPaneOpen=true };
     private readonly Grid workspace=new();
+    private readonly ScrollViewer workspaceScroll=new() { HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled };
     private readonly StackPanel content=new() { Spacing=20,Padding=new Thickness(24) };
     private readonly StackPanel controls=new() { Spacing=16 };
     private readonly ContentControl controlsHost=new() { HorizontalContentAlignment=HorizontalAlignment.Stretch };
@@ -80,7 +81,7 @@ internal sealed class MainWindow : Window {
         workspace.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto }); workspace.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
         workspace.Children.Add(content); inspectorHost.Content=inspector; workspace.Children.Add(inspectorHost); Grid.SetColumn(inspectorHost,1);
         controlsHost.Content=workspace;
-        shell.Children.Add(new ScrollViewer { Content=controlsHost,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled });
+        workspaceScroll.Content=controlsHost; shell.Children.Add(workspaceScroll);
         shell.SizeChanged+=(_,_)=> {
             var narrow=shell.ActualWidth<900;
             workspace.ColumnDefinitions[1].Width=new GridLength(narrow?0:290);
@@ -92,10 +93,10 @@ internal sealed class MainWindow : Window {
         content.Children.Add(new Expander { Header="Event preview · no input",IsExpanded=true,Content=previewContents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch });
         var transport=new StackPanel { Spacing=10,Padding=new Thickness(24,14,24,14) }; Grid.SetRow(transport,1); shell.Children.Add(transport);
         var actions=new Grid(); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) }); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
-        var summary=new StackPanel { Spacing=4 }; summary.Children.Add(new TextBlock { Text="Inspect or run",FontWeight=Microsoft.UI.Text.FontWeights.SemiBold }); summary.Children.Add(stopShortcut); actions.Children.Add(summary);
+        var summary=new StackPanel { Spacing=4 }; status.MaxWidth=420; summary.Children.Add(status); summary.Children.Add(stopShortcut); actions.Children.Add(summary);
         previewButton=Action("Preview",DryRun); openButton=Action("Open Project…",async()=>await LoadProject());
         var buttons=Row(previewButton,start,pause,stop); Grid.SetColumn(buttons,1); actions.Children.Add(buttons); transport.Children.Add(actions);
-        var details=new StackPanel { Spacing=5 }; details.Children.Add(status); details.Children.Add(metrics); details.Children.Add(new TextBlock { Text="Pause releases a hold. Run restarts from the beginning.",FontSize=12,Opacity=0.7 });
+        var details=new StackPanel { Spacing=5 }; details.Children.Add(metrics); details.Children.Add(new TextBlock { Text="Pause releases a hold. Run restarts from the beginning.",FontSize=12,Opacity=0.7 });
         transport.Children.Add(new Expander { Header="Run details",Content=details,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch });
         start.Style=(Style)Application.Current.Resources["AccentButtonStyle"];
         start.Click+=(_,_)=>Start(); pause.Click+=(_,_)=>Stop("Paused — Run restarts from the beginning",true); stop.Click+=(_,_)=>Stop();
@@ -141,6 +142,7 @@ internal sealed class MainWindow : Window {
         foreach(var oldItem in pointList.Items.OfType<ListViewItem>()) oldItem.Content=null;
         pointList.Items.Clear();
         foreach(var p in points) { var item=new ListViewItem { Content=p.Summary,Tag=p,HorizontalContentAlignment=HorizontalAlignment.Stretch }; pointList.Items.Add(item); if(p==focusedPoint) pointList.SelectedItem=item; }
+        pointList.Height=Math.Max(36,Math.Min(4,points.Count)*36);
         UpdatePointSummaries(); RenderPointEditor(); UpdateMap();
     }
     private void UpdatePointSummaries() {
@@ -152,8 +154,7 @@ internal sealed class MainWindow : Window {
         var up=Action("Move up",()=>Move(p,-1)); up.IsEnabled=points.IndexOf(p)>0;
         var down=Action("Move down",()=>Move(p,1)); down.IsEnabled=points.IndexOf(p)<points.Count-1;
         pointEditor.Children.Add(p.Display);
-        var fields=new Grid { ColumnSpacing=10 }; for(var i=0;i<3;i++) fields.ColumnDefinitions.Add(new ColumnDefinition());
-        fields.Children.Add(p.X); fields.Children.Add(p.Y); fields.Children.Add(p.Pause); Grid.SetColumn(p.Y,1); Grid.SetColumn(p.Pause,2); pointEditor.Children.Add(fields);
+        pointEditor.Children.Add(p.X); pointEditor.Children.Add(p.Y); pointEditor.Children.Add(p.Pause);
         pointEditor.Children.Add(Row(up,down,Action("Remove",()=> { points.Remove(p); focusedPoint=points.FirstOrDefault(); RenderPoints(); })));
     }
     private void Move(PointRow p,int delta) { var i=points.IndexOf(p); if(i+delta<0||i+delta>=points.Count) return; (points[i],points[i+delta])=(points[i+delta],points[i]); RenderPoints(); }
@@ -178,7 +179,8 @@ internal sealed class MainWindow : Window {
             controls.Children.Add(Row(Section("Coordinate map · no screen capture"),Action("Identify",Identify),Action("Refresh",RefreshDisplays)));
             controls.Children.Add(monitorMap); controls.Children.Add(displayChoices);
             controls.Children.Add(Row(Section("Ordered points"),Action("Add Point",AddPoint)));
-            controls.Children.Add(pointList); controls.Children.Add(pointEditor); RenderPoints();
+            controls.Children.Add(pointList);
+            inspector.Children.Add(Section("Selected point")); inspector.Children.Add(pointEditor); RenderPoints();
             inspector.Children.Add(Section("Click")); inspector.Children.Add(button); inspector.Children.Add(doubleClick); inspector.Children.Add(currentPosition); inspector.Children.Add(interval); inspector.Children.Add(currentHint);
             inspector.Children.Add(Section("Repeat")); inspector.Children.Add(limit); inspector.Children.Add(count); inspector.Children.Add(duration); inspector.Children.Add(infiniteHint);
         }
@@ -247,6 +249,7 @@ internal sealed class MainWindow : Window {
         var events=PreviewRunner.Events(program);
         preview.ItemsSource=events.Select(e=>$"{e.TimeUs/1000.0:0.0} ms · {e.Kind} · {(displays.FirstOrDefault(d=>d.Id==e.Slot) is RuntimeDisplay d?DisplayName(d):project?.MonitorSlots.FirstOrDefault(s=>s.Id==e.Slot)?.Name??"Unmapped display")} · {(e.Point==null?"current pointer":$"({e.Point.X:0.##}, {e.Point.Y:0.##})")}").ToArray();
         previewEmpty.Visibility=Visibility.Collapsed;
+        DispatcherQueue.TryEnqueue(()=>preview.StartBringIntoView());
     }
     private async void DryRun() { try { ShowPreview(Program()); status.Text="Dry run — first 200 events at most; zero input."; } catch(Exception e) { await Error(e.Message); } }
     private async void Start() {
