@@ -87,8 +87,10 @@ public struct StreamManifest: Codable, Sendable, Equatable {
     public let frameCount: Int64
     public let gaps: [RecordingGap]
     public let writerStatus: WriterStatus
+    public let gapCount: Int64
+    public let gapJournalPath: String
     public let failureReason: String?
-    public init(monitorSlotId: String, relativePath: String, clock: ClockAnchor, mediaTimeZeroUs: Int64? = nil, encodedDurationUs: Int64, frameCount: Int64, gaps: [RecordingGap], writerStatus: WriterStatus, failureReason: String? = nil) {
+    public init(monitorSlotId: String, relativePath: String, clock: ClockAnchor, mediaTimeZeroUs: Int64? = nil, encodedDurationUs: Int64, frameCount: Int64, gaps: [RecordingGap], writerStatus: WriterStatus, gapCount: Int64, gapJournalPath: String, failureReason: String? = nil) {
         self.monitorSlotId = monitorSlotId
         self.relativePath = relativePath
         self.clock = clock
@@ -97,6 +99,8 @@ public struct StreamManifest: Codable, Sendable, Equatable {
         self.frameCount = frameCount
         self.gaps = gaps
         self.writerStatus = writerStatus
+        self.gapCount = gapCount
+        self.gapJournalPath = gapJournalPath
         self.failureReason = failureReason
     }
 }
@@ -156,6 +160,14 @@ public struct StoreRecovery: Codable, Sendable, Equatable {
 
 public protocol EventJournal: AnyObject {
     func append(record: RawPointerRecord) throws
+    func appendGap(record: JournalGapRecord) throws
+    func readGaps(visit: (JournalGapRecord) throws -> Void) throws
     func flush() throws
     func read(visit: (RawPointerRecord) throws -> Void) throws
+}
+
+public struct JournalGapRecord: Codable, Sendable, Equatable {
+    public let monitorSlotId: String
+    public let gap: RecordingGap
+    public init(monitorSlotId: String, gap: RecordingGap) { self.monitorSlotId = monitorSlotId; self.gap = gap }
 }

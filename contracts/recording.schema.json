@@ -159,7 +159,9 @@
         "encodedDurationUs",
         "frameCount",
         "gaps",
-        "writerStatus"
+        "writerStatus",
+        "gapCount",
+        "gapJournalPath"
       ],
       "properties": {
         "monitorSlotId": {
@@ -198,7 +200,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/gap"
-          }
+          },
+          "maxItems": 64
         },
         "writerStatus": {
           "enum": [
@@ -215,6 +218,15 @@
               "type": "null"
             }
           ]
+        },
+        "gapCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "gapJournalPath": {
+          "type": "string",
+          "pattern": "^takes/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/gaps\\.jsonl$"
         }
       },
       "additionalProperties": true
@@ -331,6 +343,21 @@
         }
       },
       "additionalProperties": true
+    },
+    "journalGapRecord": {
+      "type": "object",
+      "required": [
+        "monitorSlotId",
+        "gap"
+      ],
+      "properties": {
+        "monitorSlotId": {
+          "$ref": "#/$defs/id"
+        },
+        "gap": {
+          "$ref": "#/$defs/gap"
+        }
+      }
     }
   }
 }

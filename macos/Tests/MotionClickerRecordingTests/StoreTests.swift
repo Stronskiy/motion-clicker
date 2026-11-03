@@ -15,7 +15,7 @@ final class StoreTests: XCTestCase {
         RawPointerRecord(sequence: 0, event: CapturedPointerEvent(hostTimeUs: 1, nativePosition: Point(x: 1,y: 1), kind: .move), timeUs: 1, action: RecordedAction(id: "event", takeId: "take", monitorSlotId: "left", timeUs: 1, order: 0, kind: .move, x: 1,y: 1))
     }
     func manifest() -> RecordingManifest {
-        RecordingManifest(manifestVersion: 1, takeId: "take", state: .completed, epochHostUs: 0, durationUs: 1000, targets: [recordingTargets()[0].slot], streams: [StreamManifest(monitorSlotId: "left", relativePath: "media/take/left.mp4", clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 0,ticksPerSecond: 1000000), mediaTimeZeroUs: 0, encodedDurationUs: 1000, frameCount: 1,gaps: [],writerStatus: .succeeded)], rawEventCount: 1,incompleteGroupIds: [],warnings: [])
+        RecordingManifest(manifestVersion: 1, takeId: "take", state: .completed, epochHostUs: 0, durationUs: 1000, targets: [recordingTargets()[0].slot], streams: [StreamManifest(monitorSlotId: "left", relativePath: "media/take/left.mp4", clock: ClockAnchor(sourceAnchorTicks: 0,hostAnchorUs: 0,ticksPerSecond: 1000000), mediaTimeZeroUs: 0, encodedDurationUs: 1000, frameCount: 1,gaps: [],writerStatus: .succeeded,gapCount: 0,gapJournalPath: "takes/take/gaps.jsonl")], rawEventCount: 1,incompleteGroupIds: [],warnings: [])
     }
     func testActualDisposableFilesystemPublishesManifestLastAndStreamsJournal() throws {
         let r = try root(), store = try RecordingStore(root: r, takeId: "take")

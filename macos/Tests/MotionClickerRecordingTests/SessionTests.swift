@@ -6,8 +6,11 @@ import MotionClickerRuntime
 
 final class MemoryJournal: EventJournal {
     var records: [RawPointerRecord] = []
+    var gaps: [JournalGapRecord] = []
     var fail = false
     func append(record: RawPointerRecord) throws { if fail { throw RecordingError(message: "disk full") }; records.append(record) }
+    func appendGap(record: JournalGapRecord) throws { gaps.append(record) }
+    func readGaps(visit: (JournalGapRecord) throws -> Void) throws { for r in gaps { try visit(r) } }
     func flush() throws { if fail { throw RecordingError(message: "disk full") } }
     func read(visit: (RawPointerRecord) throws -> Void) throws { for r in records { try visit(r) } }
 }
@@ -151,5 +154,17 @@ extension SessionTests {
     func testRequiredCaptureFlagsCannotDefaultFromWire() throws {
         let json = #"{"hostTimeUs":0,"nativePosition":{"x":1,"y":1},"kind":"move"}"#
         XCTAssertThrowsError(try JSONDecoder().decode(CapturedPointerEvent.self,from: Data(json.utf8)))
+    }
+}
+
+
+extension SessionTests {
+    func testManyDisjointGapsSpillExactEvidenceWithBoundedManifestPreview() throws {
+        let j = MemoryJournal(), s = try readySession(j);try frames(s)
+        for i in 0..<5000 { try s.reportGap(monitorSlotId: "left",startTicks: Int64(i)*2000+1000,endTicks: Int64(i)*2000+1100,kind: .backpressure) }
+        try finishSession(s);let m = try s.project().manifest
+        XCTAssertLessThanOrEqual(m.streams[0].gaps.count,64);XCTAssertEqual(m.streams[0].gapCount,5000)
+        XCTAssertEqual(j.gaps.count,5001);XCTAssertEqual(j.gaps.last?.gap.startUs,9999000)
+        XCTAssertEqual(m.streams[0].gapJournalPath,"takes/take/gaps.jsonl")
     }
 }

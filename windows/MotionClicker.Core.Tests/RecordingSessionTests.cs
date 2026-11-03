@@ -5,8 +5,11 @@ namespace MotionClicker.Core.Tests;
 internal sealed class MemoryJournal : IEventJournal
 {
     public readonly List<RawPointerRecord> Records = [];
+    public readonly List<JournalGapRecord> Gaps=[];
     public bool Fail;
     public void Append(RawPointerRecord record) { if(Fail) throw new IOException("disk full"); Records.Add(record); }
+    public void AppendGap(JournalGapRecord record)=>Gaps.Add(record);
+    public void ReadGaps(Action<JournalGapRecord> visit){foreach(var r in Gaps)visit(r);}
     public void Flush() { if(Fail) throw new IOException("disk full"); }
     public void Read(Action<RawPointerRecord> visit) { foreach(var r in Records) visit(r); }
 }
@@ -124,5 +127,20 @@ public sealed class RecordingSessionTests
     {
         const string json="""{"hostTimeUs":0,"nativePosition":{"x":1,"y":1},"kind":"move"}""";
         Assert.Throws<System.Text.Json.JsonException>(()=>RecordingJson.Deserialize<CapturedPointerEvent>(json));
+    }
+
+    [Fact] public void ManyDisjointGapsSpillExactEvidenceWithBoundedManifestPreview()
+    {
+        var j=new MemoryJournal();var s=Ready(j);Frames(s);
+        for(var i=0;i<5000;i++)s.ReportGap("left",i*2000L+1000,i*2000L+1100,GapKind.Backpressure);
+        Finish(s);var m=s.Project().Manifest;Assert.True(m.Streams[0].Gaps.Length<=64);Assert.Equal(5000,m.Streams[0].GapCount);
+        Assert.Equal(5001,j.Gaps.Count);Assert.Equal(9999000,j.Gaps[^1].Gap.StartUs);Assert.Equal("takes/take/gaps.jsonl",m.Streams[0].GapJournalPath);
+    }
+    [Fact] public void NormalCallbacksDoNotCopyHistoricalGapArrays()
+    {
+        var s=Ready(new());Frames(s);
+        long Measure(){var before=GC.GetAllocatedBytesForCurrentThread();for(var i=0;i<2000;i++)s.Idle("left",20000000+i);return GC.GetAllocatedBytesForCurrentThread()-before;}
+        _=Measure();var cold=Measure();for(var i=0;i<5000;i++)s.ReportGap("left",i*2000L+1000,i*2000L+1100,GapKind.Dropped);
+        var warm=Measure();Assert.True(warm<=cold+131072,$"Idle allocation grew from {cold} to {warm} bytes with historical gaps");
     }
 }

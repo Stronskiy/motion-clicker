@@ -45,7 +45,8 @@ The EventJournal supplied to a new session must be fresh and empty.
 | GapKind | `leading`, `dropped`, `backpressure`, `sourceFailure`, `encoderFailure` |
 | WriterStatus | `succeeded`, `failed` |
 | RecordingGap | `startUs: Int64`, `endUs: Int64`, `kind: GapKind`, `reason?: String` |
-| StreamManifest | `monitorSlotId: String`, `relativePath: String`, `clock: ClockAnchor`, `mediaTimeZeroUs?: Int64`, `encodedDurationUs: Int64`, `frameCount: Int64`, `gaps: [RecordingGap]`, `writerStatus: WriterStatus`, `failureReason?: String` |
+| StreamManifest | `monitorSlotId: String`, `relativePath: String`, `clock: ClockAnchor`, `mediaTimeZeroUs?: Int64`, `encodedDurationUs: Int64`, `frameCount: Int64`, `gaps: [RecordingGap]`, `writerStatus: WriterStatus`, `gapCount: Int64`, `gapJournalPath: String`, `failureReason?: String` |
+| JournalGapRecord | `monitorSlotId: String`, `gap: RecordingGap` |
 | RecordingManifest | `manifestVersion: Int32`, `takeId: String`, `state: RecordingState`, `epochHostUs: Int64`, `durationUs: Int64`, `targets: [MonitorSlot]`, `streams: [StreamManifest]`, `rawEventCount: Int64`, `incompleteGroupIds: [String]`, `warnings: [String]`, `reason?: String` |
 | RecordingResult | `manifest: RecordingManifest`, `take: Take`, `events: [RecordedAction]` (on-demand projection, not wire storage) |
 | StoreRecovery | `stagingPath: String`, `mediaPath: String`, `manifestPath: String`, `mediaPublished: Bool`, `manifestPublished: Bool` (runtime diagnostic) |
@@ -112,7 +113,14 @@ on-demand and may allocate event arrays; recording itself does not.
 ## Journal/store API and publication
 
 `EventJournal` / `IEventJournal`: `append(record: RawPointerRecord)`, `flush()`,
-`read(visit: (RawPointerRecord) throws -> Void)` (C#: Action visitor).
+`read(visit: (RawPointerRecord) throws -> Void)` (C#: Action visitor),
+`appendGap(record: JournalGapRecord)`, `readGaps(visit: (JournalGapRecord) throws -> Void)`.
+Every gap is appended to `takes/<takeId>/gaps.jsonl` in capture order. Per-stream
+`gaps` contains only the first64 exact entries; `gapCount` counts ALL entries and
+`gapJournalPath` names the complete evidence. A larger gapCount explicitly means
+the manifest is a preview, never complete gap history. The cap is fixed64; no
+coalescing or silent evidence loss. Frame/idle callbacks share immutable previews
+and never copy whole history. Gap I/O failure fails capture/publication visibly.
 `RecordingStore(root: URL, takeId: String, fault: (StoreOperation) throws -> Void = no-op)`
 (C#: string root, Action<StoreOperation> optional) implements this interface.
 Read-only `recovery: StoreRecovery` exposes recoverable locations even after
@@ -138,7 +146,7 @@ edit this store's files. No prior project.json or published file is opened for
 writing. All staging is on the destination filesystem.
 
 Store owns only `.capture-<uuid>/media`, `.capture-<uuid>/metadata/events.jsonl`
-and `.capture-<uuid>/metadata/manifest.json` (plus a private Windows ownership marker). Raw UTF-8 JSONL is streamed and
+`.capture-<uuid>/metadata/gaps.jsonl` and `.capture-<uuid>/metadata/manifest.json` (plus a private Windows ownership marker). Raw UTF-8 JSONL is streamed and
 flushed durably. `publish` validates terminal manifest, ID, exact stream paths,
 nonempty successful media files, journal count, and duration. It flushes, writes
 and flushes the manifest in staging, then atomically moves the uniquely named
@@ -155,3 +163,26 @@ Synthetic fixture cases and disposable filesystem tests exercise both platforms.
 Actual capture/encoding, Windows GUI, permissions, sleep/topology, ten-minute
 physical two-monitor sync (goal <=50 ms at30fps), memory/storage acceptance and
 Record/Open UI remain OPEN for subsequent slices.
+
+## Bounded mandatory publication validation
+
+Publication reads both journals sequentially. It keeps only the selected monitor
+map, one active pointer ownership group, counts, and first64-gap preview positions.
+At most one incomplete group is allowed and it must be the still-held group at
+end of raw history (an unselected crossing ends that history without a release).
+All raw actions, including omitted incomplete groups, must have valid shape,
+coordinates, take/monitor references, nondecreasing native/event timestamps and
+capture sequence. Incomplete groups are never made executable by validation.
+
+Global entity IDs and each down's group ID are checked for uniqueness with an
+external merge sort in a uniquely owned temporary directory under capture staging.
+At most4096 ASCII identity keys are buffered, then sorted/spilled to numbered runs;
+pairwise merges retain only two current keys and use integer run counters, never
+an array of all runs. Namespace-prefixed keys keep group IDs separate from entity
+IDs. Duplicate keys fail publication even across distant runs. Validation scratch
+is removed after either outcome; raw/media staging remains recoverable. No whole
+event array, whole-history ID set, or compiler invocation with recorded events is
+part of mandatory publish. Explicit `project()` remains the opt-in allocation of
+an executable event array. Manifest previews/counts and gap journal are validated
+against each other before publication. All of this is synthetic source behavior,
+not a measured native-capture memory/storage acceptance claim.

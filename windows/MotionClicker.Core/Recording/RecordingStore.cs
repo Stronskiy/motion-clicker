@@ -88,6 +88,8 @@ public sealed class RecordingStore : IEventJournal, IDisposable
         }
         catch{poisoned=true;throw;}
     }
+    public void AppendGap(JournalGapRecord record)=>throw new RecordingException("Gap journal not implemented");
+    public void ReadGaps(Action<JournalGapRecord> visit) { }
     public void Flush()
     {
         Require(!poisoned,"Capture journal failed");try{Check(JournalPath);fault(StoreOperation.Flush);handle?.Flush(true);}catch{poisoned=true;throw;}
@@ -111,7 +113,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
     {
         Require(m.ManifestVersion==1&&m.TakeId==takeId&&m.State is RecordingState.Completed or RecordingState.Interrupted or RecordingState.Failed&&m.DurationUs>0&&m.RawEventCount==rawCount,"Invalid terminal manifest");
         Require(m.Streams.Length==m.Targets.Length&&m.Streams.Length>0,"Missing manifest streams");
-        var seen=new HashSet<string>(StringComparer.Ordinal);var events=new List<RecordedAction>();long actual=0;var incomplete=new HashSet<string>(m.IncompleteGroupIds,StringComparer.Ordinal);
+        var seen=new HashSet<string>(StringComparer.Ordinal);var incomplete=new HashSet<string>(m.IncompleteGroupIds,StringComparer.Ordinal);
         foreach(var id in incomplete)Id(id);
         foreach(var s in m.Streams)
         {
@@ -130,18 +132,7 @@ public sealed class RecordingStore : IEventJournal, IDisposable
             }
             else Require(m.State!=RecordingState.Completed,"Failed writer labeled completed");
         }
-        Read(r=>{
-            Require(r.Sequence==actual&&r.TimeUs>=0&&r.TimeUs<m.DurationUs,"Invalid raw journal ordering/range");actual++;
-            if(r.Action is RecordedAction a)
-            {
-                Require(a.TimeUs==r.TimeUs&&a.Order==r.Sequence&&a.AtomicGroupId==r.AtomicGroupId,"Raw/projection mismatch");
-                if(a.AtomicGroupId is null||!incomplete.Contains(a.AtomicGroupId))events.Add(a);
-            }
-        });
-        Require(actual==m.RawEventCount,"Journal count mismatch");
-        var take=new Take(takeId,m.DurationUs,m.Targets.Select(t=>t.Id).ToArray(),m.Streams.Where(s=>s.WriterStatus==WriterStatus.Succeeded).Select(s=>new TakeMedia(s.MonitorSlotId,s.RelativePath)).ToArray());
-        RunPlanCompiler.Compile(new(1,"validation-"+Guid.NewGuid(),0,m.Targets,[take],[],[],events.ToArray()));
-        Require(m.State!=RecordingState.Completed||incomplete.Count==0,"Incomplete group labeled completed");
+        _=RecordingJournalValidation.Validate(m,staging,Read);
     }
     public string Publish(RecordingManifest manifest)
     {

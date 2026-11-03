@@ -20,7 +20,7 @@ public sealed record RawPointerRecord(int Sequence, CapturedPointerEvent Event, 
 
 public sealed record RecordingGap(long StartUs, long EndUs, GapKind Kind, string? Reason = null);
 
-public sealed record StreamManifest(string MonitorSlotId, string RelativePath, ClockAnchor Clock, long? MediaTimeZeroUs, long EncodedDurationUs, long FrameCount, RecordingGap[] Gaps, WriterStatus WriterStatus, string? FailureReason = null);
+public sealed record StreamManifest(string MonitorSlotId, string RelativePath, ClockAnchor Clock, long? MediaTimeZeroUs, long EncodedDurationUs, long FrameCount, RecordingGap[] Gaps, WriterStatus WriterStatus, long GapCount, string GapJournalPath, string? FailureReason = null);
 
 public sealed record RecordingManifest(int ManifestVersion, string TakeId, RecordingState State, long EpochHostUs, long DurationUs, MonitorSlot[] Targets, StreamManifest[] Streams, long RawEventCount, string[] IncompleteGroupIds, string[] Warnings, string? Reason = null);
 
@@ -28,7 +28,7 @@ public sealed record RecordingResult(RecordingManifest Manifest, Take Take, Reco
 
 public sealed record StoreRecovery(string StagingPath, string MediaPath, string ManifestPath, bool MediaPublished, bool ManifestPublished);
 
-public interface IEventJournal { void Append(RawPointerRecord record); void Flush(); void Read(Action<RawPointerRecord> visit); }
+public interface IEventJournal { void Append(RawPointerRecord record); void AppendGap(JournalGapRecord record); void ReadGaps(Action<JournalGapRecord> visit); void Flush(); void Read(Action<RawPointerRecord> visit); }
 
 public static class RecordingJson
 {
@@ -53,14 +53,16 @@ public static class RecordingJson
 internal sealed class StreamManifestJsonConverter : JsonConverter<StreamManifest>
 {
     private sealed record Wire(string MonitorSlotId,string RelativePath,ClockAnchor Clock,
-        long EncodedDurationUs,long FrameCount,RecordingGap[] Gaps,WriterStatus WriterStatus,
+        long EncodedDurationUs,long FrameCount,RecordingGap[] Gaps,WriterStatus WriterStatus,long GapCount,string GapJournalPath,
         long? MediaTimeZeroUs=null,string? FailureReason=null);
     public override StreamManifest Read(ref Utf8JsonReader reader,Type type,JsonSerializerOptions options)
     {
         var w=JsonSerializer.Deserialize<Wire>(ref reader,options)??throw new JsonException("Null stream");
-        return new(w.MonitorSlotId,w.RelativePath,w.Clock,w.MediaTimeZeroUs,w.EncodedDurationUs,w.FrameCount,w.Gaps,w.WriterStatus,w.FailureReason);
+        return new(w.MonitorSlotId,w.RelativePath,w.Clock,w.MediaTimeZeroUs,w.EncodedDurationUs,w.FrameCount,w.Gaps,w.WriterStatus,w.GapCount,w.GapJournalPath,w.FailureReason);
     }
     public override void Write(Utf8JsonWriter writer,StreamManifest value,JsonSerializerOptions options)=>
         JsonSerializer.Serialize(writer,new Wire(value.MonitorSlotId,value.RelativePath,value.Clock,value.EncodedDurationUs,
-            value.FrameCount,value.Gaps,value.WriterStatus,value.MediaTimeZeroUs,value.FailureReason),options);
+            value.FrameCount,value.Gaps,value.WriterStatus,value.GapCount,value.GapJournalPath,value.MediaTimeZeroUs,value.FailureReason),options);
 }
+
+public sealed record JournalGapRecord(string MonitorSlotId, RecordingGap Gap);

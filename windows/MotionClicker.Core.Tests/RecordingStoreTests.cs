@@ -12,7 +12,7 @@ public sealed class RecordingStoreTests : IDisposable
     public void Dispose() { foreach(var p in roots)Directory.Delete(p,true); }
     private static RawPointerRecord Record()=>new(0,new(1,new(1,1),ActionKind.Move),1,new("event","take","left",1,0,ActionKind.Move,1,1));
     private static RecordingManifest Manifest()=>new(1,"take",RecordingState.Completed,0,1000,[RecordingSessionTests.Targets()[0].Slot],
-        [new("left","media/take/left.mp4",new(0,0,1000000),0,1000,1,[],WriterStatus.Succeeded)],1,[],[]);
+        [new("left","media/take/left.mp4",new(0,0,1000000),0,1000,1,[],WriterStatus.Succeeded,0,"takes/take/gaps.jsonl")],1,[],[]);
     [Fact] public void ActualDisposableFilesystemPublishesManifestLastAndStreamsJournal()
     {
         var r=Root();using var store=new RecordingStore(r,"take");store.Append(Record());File.WriteAllText(store.MediaFile("left"),"synthetic-media");

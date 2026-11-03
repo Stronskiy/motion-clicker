@@ -101,6 +101,8 @@ public final class RecordingStore: EventJournal {
             try handle.write(contentsOf: bytes); rawCount = try recordingAdd(rawCount, 1)
         } catch { poisoned = true; throw error }
     }
+    public func appendGap(record: JournalGapRecord) throws { throw RecordingError(message: "Gap journal not implemented") }
+    public func readGaps(visit: (JournalGapRecord) throws -> Void) throws { }
     public func flush() throws {
         try recordingRequire(!poisoned, "Capture journal failed")
         do {
@@ -128,7 +130,7 @@ public final class RecordingStore: EventJournal {
     private func validate(_ m: RecordingManifest) throws {
         try recordingRequire(m.manifestVersion == 1 && m.takeId == takeId && [.completed,.interrupted,.failed].contains(m.state) && m.durationUs > 0 && m.rawEventCount == rawCount, "Invalid terminal manifest")
         try recordingRequire(m.streams.count == m.targets.count && !m.streams.isEmpty, "Missing manifest streams")
-        var seen = Set<String>(), events: [RecordedAction] = [], actual: Int64 = 0
+        var seen = Set<String>()
         let incomplete = Set(m.incompleteGroupIds)
         for id in incomplete { try Self.id(id) }
         for s in m.streams {
@@ -146,18 +148,7 @@ public final class RecordingStore: EventJournal {
                 try recordingRequire(a[.type] as? FileAttributeType == .typeRegular && (a[.size] as? NSNumber)?.int64Value ?? 0 > 0, "Missing or empty successful media")
             } else { try recordingRequire(m.state != .completed, "Failed writer labeled completed") }
         }
-        try read { r in
-            try recordingRequire(Int64(r.sequence) == actual && r.timeUs >= 0 && r.timeUs < m.durationUs, "Invalid raw journal ordering/range")
-            actual += 1
-            if let a = r.action {
-                try recordingRequire(a.timeUs == r.timeUs && a.order == Int(r.sequence) && a.atomicGroupId == r.atomicGroupId, "Raw/projection mismatch")
-                if a.atomicGroupId.map({ !incomplete.contains($0) }) ?? true { events.append(a) }
-            }
-        }
-        try recordingRequire(actual == m.rawEventCount, "Journal count mismatch")
-        let take = Take(id: takeId,durationUs: m.durationUs,monitorSlotIds: m.targets.map(\.id),media: m.streams.filter { $0.writerStatus == .succeeded }.map { TakeMedia(monitorSlotId: $0.monitorSlotId,relativePath: $0.relativePath) })
-        _ = try RunPlanCompiler.compile(MotionProject(id: "validation-" + UUID().uuidString,monitorSlots: m.targets,takes: [take],events: events))
-        try recordingRequire(m.state != .completed || incomplete.isEmpty, "Incomplete group labeled completed")
+        _ = try RecordingJournalValidation.validate(manifest: m,scratchRoot: staging,read: read)
     }
     public func publish(manifest: RecordingManifest) throws -> URL {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]

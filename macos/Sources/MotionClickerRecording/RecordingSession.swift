@@ -202,7 +202,7 @@ public final class RecordingSession {
             var gaps = s.gaps
             if !successful { gaps.append(RecordingGap(startUs: duration,endUs: duration,kind: .encoderFailure,reason: failure ?? "Empty or incomplete writer")) }
             if !gaps.isEmpty { warnings.append("Stream \(id) contains gaps or failures") }
-            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: gaps,writerStatus: successful ? .succeeded : .failed,failureReason: successful ? s.sourceFailure : failure ?? "Empty or incomplete writer"))
+            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: gaps,writerStatus: successful ? .succeeded : .failed,gapCount: 0,gapJournalPath: "takes/\(takeId)/gaps.jsonl",failureReason: successful ? s.sourceFailure : failure ?? "Empty or incomplete writer"))
         }
         state = terminalState
         result = RecordingManifest(manifestVersion: 1,takeId: takeId,state: state,epochHostUs: epoch,durationUs: duration,targets: targets.map(\.slot),streams: media,rawEventCount: count,incompleteGroupIds: incomplete.sorted(),warnings: warnings,reason: reason)
