@@ -201,6 +201,18 @@ public sealed class CoreTests
     public void WireRejectsWrongTypesEnumsAndOverflow(string from, string to) =>
         Assert.Throws<JsonException>(() => ProjectJson.Deserialize<MotionProject>(ProjectJson.Serialize(Sample()).Replace(from, to, StringComparison.Ordinal)));
 
+    [Theory]
+    [InlineData("1.0", 1L)]
+    [InlineData("1e0", 1L)]
+    [InlineData("9007199254740993.0", 9007199254740993L)]
+    [InlineData("9.223372036854775807e18", long.MaxValue)]
+    [InlineData("0e999999999999999999999999", 0L)]
+    public void IntegralJsonNumbersDecodeExactlyWithoutBinary64(string literal, long expected)
+    {
+        var json = ProjectJson.Serialize(Sample()).Replace("\"revision\":0", "\"revision\":" + literal, StringComparison.Ordinal);
+        Assert.Equal(expected, ProjectJson.Deserialize<MotionProject>(json).Revision);
+    }
+
     [Fact]
     public void WireRequiresAllFieldsAndRejectsNullReferencesIncludingCollectionElements()
     {
