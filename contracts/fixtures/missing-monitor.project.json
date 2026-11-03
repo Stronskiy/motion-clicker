@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "missing-monitor-project",
+  "revision": 0,
+  "monitorSlots": [],
+  "takes": [],
+  "tracks": [
+    {
+      "id": "missing-track",
+      "name": "Missing",
+      "monitorSlotId": "absent",
+      "order": 0
+    }
+  ],
+  "clips": [],
+  "events": []
+}

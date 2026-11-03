@@ -1,0 +1,58 @@
+[
+  {
+    "id": "early:start",
+    "sourceEventId": "start",
+    "clipId": "early",
+    "takeId": "take-one",
+    "monitorSlotId": "main",
+    "timeUs": 1000,
+    "sourceTimeUs": 100,
+    "trackOrder": 0,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "early:early-last",
+    "sourceEventId": "early-last",
+    "clipId": "early",
+    "takeId": "take-one",
+    "monitorSlotId": "main",
+    "timeUs": 1199,
+    "sourceTimeUs": 299,
+    "trackOrder": 0,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "late:boundary",
+    "sourceEventId": "boundary",
+    "clipId": "late",
+    "takeId": "take-one",
+    "monitorSlotId": "main",
+    "timeUs": 2000,
+    "sourceTimeUs": 300,
+    "trackOrder": 0,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  },
+  {
+    "id": "late:late-last",
+    "sourceEventId": "late-last",
+    "clipId": "late",
+    "takeId": "take-one",
+    "monitorSlotId": "main",
+    "timeUs": 2199,
+    "sourceTimeUs": 499,
+    "trackOrder": 0,
+    "eventOrder": 0,
+    "kind": "move",
+    "x": 100,
+    "y": 150
+  }
+]
