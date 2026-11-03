@@ -7,6 +7,7 @@ public final class RecordingStore: EventJournal {
     private let root: URL, staging: URL, media: URL, metadata: URL, takeId: String
     private let fault: (StoreOperation) throws -> Void
     private var handle: FileHandle?
+    private var gapHandle: FileHandle?
     private var poisoned = false, closed = false, mediaPublished = false, manifestPublished = false
     private var reserved = Set<String>(), rawCount: Int64 = 0
     private var frozenManifest: Data?
@@ -29,8 +30,9 @@ public final class RecordingStore: EventJournal {
         try Self.createDirectory(staging.appendingPathComponent("media"))
         try Self.createDirectory(staging.appendingPathComponent("metadata"))
         handle = try Self.exclusiveFile(staging.appendingPathComponent("metadata/events.jsonl"))
+        gapHandle = try Self.exclusiveFile(staging.appendingPathComponent("metadata/gaps.jsonl"))
     }
-    deinit { try? handle?.close() }
+    deinit { try? handle?.close(); try? gapHandle?.close() }
     private static func id(_ id: String) throws {
         let stem = id.split(separator: ".", omittingEmptySubsequences: false).first.map(String.init)?.uppercased() ?? ""
         let reserved = ["CON", "PRN", "AUX", "NUL"] + (1...9).flatMap { ["COM\($0)", "LPT\($0)"] }
@@ -83,6 +85,7 @@ public final class RecordingStore: EventJournal {
         try recordingRequire((try FileManager.default.attributesOfItem(atPath: url.path))[.type] as? FileAttributeType == .typeDirectory, "Expected directory")
     }
     private var journalPath: URL { (manifestPublished ? metadata : staging.appendingPathComponent("metadata")).appendingPathComponent("events.jsonl") }
+    private var gapPath: URL { (manifestPublished ? metadata : staging.appendingPathComponent("metadata")).appendingPathComponent("gaps.jsonl") }
     public func mediaFile(monitorSlotId: String) throws -> URL {
         try Self.id(monitorSlotId)
         try recordingRequire(!closed && !mediaPublished && frozenManifest == nil && !poisoned, "Capture store no longer writable")
@@ -101,26 +104,37 @@ public final class RecordingStore: EventJournal {
             try handle.write(contentsOf: bytes); rawCount = try recordingAdd(rawCount, 1)
         } catch { poisoned = true; throw error }
     }
-    public func appendGap(record: JournalGapRecord) throws { throw RecordingError(message: "Gap journal not implemented") }
-    public func readGaps(visit: (JournalGapRecord) throws -> Void) throws { }
+    public func appendGap(record: JournalGapRecord) throws {
+        try recordingRequire(!closed && !poisoned && frozenManifest == nil,"Capture journal no longer writable")
+        do {
+            try check(gapPath);try fault(.append)
+            guard let gapHandle else { throw RecordingError(message: "Gap journal closed") }
+            var bytes = try JSONEncoder().encode(record);bytes.append(10);try gapHandle.write(contentsOf: bytes)
+        } catch { poisoned = true;throw error }
+    }
+    public func readGaps(visit: (JournalGapRecord) throws -> Void) throws {
+        try gapHandle?.synchronize();try readLines(path: gapPath,visit: visit)
+    }
     public func flush() throws {
         try recordingRequire(!poisoned, "Capture journal failed")
         do {
-            try check(journalPath); try fault(.flush)
-            if let handle { try handle.synchronize() }
+            try check(journalPath);try check(gapPath); try fault(.flush)
+            if let handle { try handle.synchronize() };try gapHandle?.synchronize()
         } catch { poisoned = true; throw error }
     }
     public func read(visit: (RawPointerRecord) throws -> Void) throws {
-        try check(journalPath)
-        if let handle { try handle.synchronize() }
-        let input = try FileHandle(forReadingFrom: journalPath); defer { try? input.close() }
+        try handle?.synchronize();try readLines(path: journalPath,visit: visit)
+    }
+    private func readLines<T: Decodable>(path: URL,visit: (T) throws -> Void) throws {
+        try check(path)
+        let input = try FileHandle(forReadingFrom: path); defer { try? input.close() }
         var pending = Data()
         while let bytes = try input.read(upToCount: 65536), !bytes.isEmpty {
             pending.append(bytes)
             while let newline = pending.firstIndex(of: 10) {
                 let line = pending[..<newline]
                 try recordingRequire(!line.isEmpty && line.count <= 1048576, "Invalid journal line")
-                try visit(JSONDecoder().decode(RawPointerRecord.self,from: Data(line)))
+                try visit(JSONDecoder().decode(T.self,from: Data(line)))
                 pending.removeSubrange(...newline)
             }
             try recordingRequire(pending.count <= 1048576, "Oversized journal record")
@@ -139,6 +153,7 @@ public final class RecordingStore: EventJournal {
             _ = try MediaClockMapper(sourceAnchorTicks: s.clock.sourceAnchorTicks,hostAnchorUs: s.clock.hostAnchorUs,ticksPerSecond: s.clock.ticksPerSecond,epochHostUs: m.epochHostUs)
             try recordingRequire(s.frameCount >= 0 && s.encodedDurationUs >= 0, "Invalid media counters")
             if let zero = s.mediaTimeZeroUs { try recordingRequire(zero >= 0 && (s.writerStatus == .failed || recordingAdd(zero, s.encodedDurationUs) <= m.durationUs), "Media beyond take") }
+            try recordingRequire(s.gapCount >= 0 && s.gaps.count == min(s.gapCount,64) && s.gapJournalPath == "takes/\(takeId)/gaps.jsonl", "Invalid gap preview metadata")
             for gap in s.gaps { try recordingRequire(gap.startUs >= 0 && gap.endUs >= gap.startUs && gap.endUs <= m.durationUs, "Invalid gap range") }
             if s.writerStatus == .succeeded {
                 try recordingRequire(s.frameCount > 0 && s.encodedDurationUs > 0 && s.mediaTimeZeroUs != nil, "Empty successful media")
@@ -148,6 +163,16 @@ public final class RecordingStore: EventJournal {
                 try recordingRequire(a[.type] as? FileAttributeType == .typeRegular && (a[.size] as? NSNumber)?.int64Value ?? 0 > 0, "Missing or empty successful media")
             } else { try recordingRequire(m.state != .completed, "Failed writer labeled completed") }
         }
+        var gapCounts = Dictionary(uniqueKeysWithValues: m.streams.map { ($0.monitorSlotId,Int64(0)) })
+        let streamMap = Dictionary(uniqueKeysWithValues: m.streams.map { ($0.monitorSlotId,$0) })
+        try readGaps { r in
+            guard let stream = streamMap[r.monitorSlotId], let count = gapCounts[r.monitorSlotId] else { throw RecordingError(message: "Unknown gap source") }
+            let gap = r.gap
+            try recordingRequire(gap.startUs >= 0 && gap.endUs >= gap.startUs && gap.endUs <= m.durationUs,"Invalid journal gap range")
+            if count < 64 { try recordingRequire(Int(count) < stream.gaps.count && stream.gaps[Int(count)] == gap,"Gap preview mismatch") }
+            gapCounts[r.monitorSlotId] = try recordingAdd(count,1)
+        }
+        for stream in m.streams { try recordingRequire(gapCounts[stream.monitorSlotId] == stream.gapCount,"Gap journal count mismatch") }
         _ = try RecordingJournalValidation.validate(manifest: m,scratchRoot: staging,read: read)
     }
     public func publish(manifest: RecordingManifest) throws -> URL {
@@ -169,7 +194,7 @@ public final class RecordingStore: EventJournal {
             catch { try? output.close(); poisoned = true; throw error }
             frozenManifest = bytes
         }
-        try handle?.close(); handle = nil
+        try handle?.close(); handle = nil;try gapHandle?.close();gapHandle = nil
         if !mediaPublished {
             try fault(.moveMedia); try check(media); try checkTree(staging.appendingPathComponent("media"))
             try Self.moveExclusive(staging.appendingPathComponent("media"),media); mediaPublished = true
@@ -181,5 +206,5 @@ public final class RecordingStore: EventJournal {
     private static func moveExclusive(_ source: URL, _ destination: URL) throws {
         guard renamex_np(source.path,destination.path,UInt32(RENAME_EXCL)) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
-    public func close() throws { try handle?.close(); handle = nil; closed = true }
+    public func close() throws { try handle?.close(); handle = nil;try gapHandle?.close();gapHandle = nil; closed = true }
 }

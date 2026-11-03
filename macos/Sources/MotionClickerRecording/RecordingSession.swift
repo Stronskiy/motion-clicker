@@ -8,6 +8,7 @@ public final class RecordingSession {
         var clock: ClockAnchor?
         var zero: Int64?
         var count: Int64 = 0
+        var gapCount: Int64 = 0
         var end: Int64 = 0
         var lastTicks: Int64?
         var gaps: [RecordingGap] = []
@@ -122,6 +123,13 @@ public final class RecordingSession {
         catch { journalFailed = true; throw error }
         count += 1; duration = max(duration, nextDuration)
     }
+    private func appendGap(_ gap: RecordingGap, monitorSlotId: String, stream: inout Stream) throws {
+        let next = try recordingAdd(stream.gapCount,1)
+        do { try journal.appendGap(record: JournalGapRecord(monitorSlotId: monitorSlotId,gap: gap)) }
+        catch { journalFailed = true; throw error }
+        stream.gapCount = next
+        if stream.gaps.count < 64 { stream.gaps.append(gap) }
+    }
     public func acceptedFrame(monitorSlotId: String, sourceTicks: Int64, encodedTimeUs: Int64, durationUs: Int64) throws {
         guard state == .recording || state == .finalizing else { return }
         try checkedRecording {
@@ -129,17 +137,15 @@ public final class RecordingSession {
             let time = try mapper(s).map(sourceTicks: sourceTicks); if time < 0 { return }
             try recordingRequire(s.lastTicks == nil || sourceTicks > s.lastTicks!, "Reversed or duplicate frame timestamp")
             try recordingRequire(encodedTimeUs >= s.end && durationUs > 0, "Invalid encoded frame range")
-            if s.zero == nil {
-                try recordingRequire(encodedTimeUs == 0, "First encoded frame must start at zero")
-                s.zero = time
-                if time > 0 { s.gaps.append(RecordingGap(startUs: 0,endUs: time,kind: .leading)) }
-            }
-            let expected = try recordingAdd(s.zero!, encodedTimeUs)
+            let zero = s.zero ?? time
+            if s.zero == nil { try recordingRequire(encodedTimeUs == 0, "First encoded frame must start at zero") }
+            let expected = try recordingAdd(zero, encodedTimeUs)
             let error = try recordingSubtract(time, expected)
             try recordingRequire(error >= -1 && error <= 1, "Encoder rebased source timing")
-            s.end = try recordingAdd(encodedTimeUs, durationUs)
-            duration = max(duration, try recordingAdd(s.zero!, s.end))
-            s.count = try recordingAdd(s.count, 1); s.lastTicks = sourceTicks; streams[monitorSlotId] = s
+            let end = try recordingAdd(encodedTimeUs,durationUs), nextDuration = try recordingAdd(zero,end), nextCount = try recordingAdd(s.count,1)
+            if s.zero == nil && time > 0 { try appendGap(RecordingGap(startUs: 0,endUs: time,kind: .leading),monitorSlotId: monitorSlotId,stream: &s) }
+            s.zero = zero; s.end = end; s.count = nextCount; s.lastTicks = sourceTicks
+            duration = max(duration,nextDuration); streams[monitorSlotId] = s
         }
     }
     public func idle(monitorSlotId: String, sourceTicks: Int64) throws {
@@ -153,7 +159,7 @@ public final class RecordingSession {
             let m = try mapper(s), start = try m.map(sourceTicks: startTicks), end = try m.map(sourceTicks: endTicks)
             try recordingRequire(end > start, "Invalid gap range")
             if end <= 0 { return }
-            s.gaps.append(RecordingGap(startUs: max(0, start),endUs: end,kind: kind,reason: reason)); streams[monitorSlotId] = s
+            try appendGap(RecordingGap(startUs: max(0,start),endUs: end,kind: kind,reason: reason),monitorSlotId: monitorSlotId,stream: &s); streams[monitorSlotId] = s
             duration = max(duration, end)
         }
     }
@@ -163,7 +169,8 @@ public final class RecordingSession {
         try checkedRecording {
             var s = try stream(monitorSlotId)
             let time = max(0, try recordingSubtract(hostTimeUs, epoch))
-            s.sourceFailure = reason; s.gaps.append(RecordingGap(startUs: time,endUs: time,kind: .sourceFailure,reason: reason)); streams[monitorSlotId] = s
+            try appendGap(RecordingGap(startUs: time,endUs: time,kind: .sourceFailure,reason: reason),monitorSlotId: monitorSlotId,stream: &s)
+            s.sourceFailure = reason; streams[monitorSlotId] = s
             duration = max(duration, time); interrupt(reason)
         }
     }
@@ -189,21 +196,26 @@ public final class RecordingSession {
         if streams.values.allSatisfy({ $0.terminal != nil }) { try finalize() }
     }
     private func finalize() throws {
-        do { try journal.flush() } catch { journalFailed = true; interrupt(String(describing: error), failed: true) }
         var media: [StreamManifest] = []
         for target in targets {
-            let id = target.slot.id, s = streams[id]!, t = s.terminal!
+            let id = target.slot.id
+            var s = streams[id]!
+            let t = s.terminal!
             var successful = t.status == .succeeded && s.count > 0 && t.duration >= s.end && s.zero != nil
             var failure = t.reason
             if let zero = s.zero {
                 do { duration = max(duration, try recordingAdd(zero, t.duration)) }
                 catch { successful = false; failure = "Writer duration overflow"; interrupt(failure!, failed: true) }
             }
-            var gaps = s.gaps
-            if !successful { gaps.append(RecordingGap(startUs: duration,endUs: duration,kind: .encoderFailure,reason: failure ?? "Empty or incomplete writer")) }
-            if !gaps.isEmpty { warnings.append("Stream \(id) contains gaps or failures") }
-            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: gaps,writerStatus: successful ? .succeeded : .failed,gapCount: 0,gapJournalPath: "takes/\(takeId)/gaps.jsonl",failureReason: successful ? s.sourceFailure : failure ?? "Empty or incomplete writer"))
+            if !successful {
+                do { try appendGap(RecordingGap(startUs: duration,endUs: duration,kind: .encoderFailure,reason: failure ?? "Empty or incomplete writer"),monitorSlotId: id,stream: &s) }
+                catch { journalFailed = true; interrupt(String(describing: error),failed: true) }
+            }
+            streams[id] = s
+            if s.gapCount > 0 { warnings.append("Stream \(id) contains gaps or failures") }
+            media.append(StreamManifest(monitorSlotId: id,relativePath: "media/\(takeId)/\(id).mp4",clock: s.clock!,mediaTimeZeroUs: s.zero,encodedDurationUs: t.duration,frameCount: s.count,gaps: s.gaps,writerStatus: successful ? .succeeded : .failed,gapCount: s.gapCount,gapJournalPath: "takes/\(takeId)/gaps.jsonl",failureReason: successful ? s.sourceFailure : failure ?? "Empty or incomplete writer"))
         }
+        do { try journal.flush() } catch { journalFailed = true; interrupt(String(describing: error),failed: true) }
         state = terminalState
         result = RecordingManifest(manifestVersion: 1,takeId: takeId,state: state,epochHostUs: epoch,durationUs: duration,targets: targets.map(\.slot),streams: media,rawEventCount: count,incompleteGroupIds: incomplete.sorted(),warnings: warnings,reason: reason)
     }
