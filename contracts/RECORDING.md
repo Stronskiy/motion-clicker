@@ -6,7 +6,8 @@ No screen capture, encoding, input injection or UI is implemented here.
 
 ## Execution and numeric rules
 
-The caller serializes every session/store call on one executor. These objects
+The caller serializes every readiness/frame/pointer/stop/finalization and store
+call on one serial owner; native callback queues must marshal to that owner. These objects
 are not thread safe. Adapters must provide verified native source/host anchors;
 callback arrival time is never an anchor. All times are exact signed Int64 JSON
 integers; all counts/sequence numbers are Int64 except event order (Int32).
@@ -110,8 +111,10 @@ on-demand and may allocate event arrays; recording itself does not.
 (C#: string root, Action<StoreOperation> optional) implements this interface.
 Read-only `recovery: StoreRecovery` exposes recoverable locations even after
 failure. `mediaFile(monitorSlotId: String) -> URL` (C#: string) reserves an
-exclusive `<slot>.mp4` file in staging for the future encoder. The adapter opens
-this existing file without replacing its inode; closes before publish.
+exclusive `<slot>.mp4` name in the store-owned staging directory. The returned
+file does NOT exist yet (required by AVAssetWriter). Duplicate reservation is
+rejected. The adapter creates this file exclusively and closes before publish.
+The store revalidates all path components and rejects links before publication.
 `publish(manifest: RecordingManifest) -> URL` returns published manifest path;
 retry after failure is allowed, repeated successful identical publish is a no-op,
 conflicting manifest is rejected. `close()` (C#: Dispose) closes journal handles.
