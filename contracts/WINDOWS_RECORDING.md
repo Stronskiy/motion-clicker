@@ -26,11 +26,11 @@ the next real source timestamp/loss/stop, and retains full unresolved loss spans
 
 [Microsoft's hook documentation](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)
 states that timeout removal of WH_MOUSE_LL can be silent and cannot be queried.
-A dedicated fast hook thread plus pump/callback watchdog can detect our observed
-stall paths, but cannot prove arbitrary silent hook removal. Before implementing
-that hook path, the controller must decide whether this explicit coverage limit
-satisfies the source gate or whether the observation architecture must change.
-No input sentinel, settings mutation or unsupported detection claim is proposed.
+The controller ruling selects a dedicated fast passive hook thread with independent
+pump/callback watchdog. This detects known/suspected loss, not arbitrary silent
+removal: a healthy pump is not proof that the hook remains installed. That remains
+an explicit diagnostic and physical-acceptance limit. No input sentinel, settings
+mutation, silent reinstall or unsupported hook-installed query is used.
 
 ## Public surface
 
@@ -78,6 +78,40 @@ projection/publication. API calls do not depend on the WinUI dispatcher. Native
 resources have separate bounded work transport. Exact resource bounds and
 shutdown behavior must be recorded here alongside the implementation before
 source-gate completion; no unspecified unbounded callback/task queue is allowed.
+
+### Resume lifecycle and transport contract
+
+The serial owner runs on a named background thread, independent of WinUI. Its API
+command mailbox holds at most16 commands; a full mailbox rejects the request.
+Pointer ingress holds1024 immutable scalar packets; overflow interrupts the take.
+Each source holds one pending owned image handoff plus the timeline's one image.
+Admission loss retains its earliest source timestamp until owner processing;
+it is never confused with a quiet/static display. Encoder workers hold3 input
+images and3 successful metadata acknowledgments each. Only native Append success
+produces a metadata acknowledgment; only the owner mutates session/store.
+
+Preparation freezes monitor mapping and initializes same-thread encoder workers;
+constructors/preparation never start capture or install hooks. Explicit Start
+starts native sources; readiness acknowledgments precede one QPC epoch. Start
+completes only after all selected sources provide genuine post-epoch images,
+with a10s start/image deadline. There is no pre-epoch static-frame relabeling.
+
+Independent watchdog probes every100ms, requires an owned pump acknowledgment
+within250ms and interrupts a callback running100ms or longer. Its stop request
+does not wait for the owner, UI, encoder or GPU thread. Known installation,
+uninstallation, pump exit, desktop/session/power/topology and source errors
+interrupt; stale callbacks cannot revive a stopped generation.
+
+Stop is idempotent. Native producers first acknowledge closure, admissible ingress
+is drained, every timeline closes at the stop QPC boundary, and every dedicated
+encoder drains/finalizes once. Owner consumes successful acknowledgments before
+writer terminals and publication. Native preparation/start/stop waits are bounded
+at10s; on unknown closure, staging is quarantined and Stop fails with recoverable
+paths available through RecoveryAsync. No manifest/media publication, deletion,
+resource disposal under live native work or prior-save overwrite occurs. A blocked
+OS call cannot safely be killed: its background worker retains its resources and
+performs closure itself if the call returns. The API wait is bounded, not a claim
+that Windows guarantees cancellation of an in-progress COM operation.
 
 ## Clock and pointer rules
 

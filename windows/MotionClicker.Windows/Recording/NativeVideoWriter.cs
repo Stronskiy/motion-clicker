@@ -4,8 +4,6 @@ using Vortice.MediaFoundation;
 
 namespace MotionClicker.Windows.Recording;
 
-internal sealed record NativeWriterResult(bool Succeeded,long FrameCount,long EncodedDurationTicks,string? Failure);
-
 // All methods and COM lifetime belong to a single dedicated encoder thread.
 // Each submitted buffer is immutable and independently owned by its MF sample.
 internal sealed class NativeVideoWriter : IDisposable
