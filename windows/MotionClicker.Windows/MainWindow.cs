@@ -62,7 +62,8 @@ internal sealed partial class MainWindow : Window {
     private Button previewButton=null!;
     private Button openButton=null!;
     private readonly DispatcherTimer ticker=new() { Interval=TimeSpan.FromMilliseconds(100) };
-    private readonly List<Window> identifiers=[];
+    private Task? identificationTask;
+    private CancellationTokenSource? identificationCancellation;
     private bool Active=>operations.Busy;
     private sealed class PointRow {
         public Guid Id { get; }=Guid.NewGuid();
@@ -347,12 +348,24 @@ internal sealed partial class MainWindow : Window {
     }
     private async Task Error(string text) { operationError=text;status.Text=text;if(Active||closingRequested)return; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
     private async void Identify() {
-        if(Active)return;
-        foreach(var old in identifiers) old.Close(); identifiers.Clear();
-        foreach(var d in displays) {
-            var window=new Window { Title="Identify Display",Content=new Border { Padding=new Thickness(24),Background=(Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],Child=new TextBlock { Text=d.Name,TextWrapping=TextWrapping.Wrap,FontSize=28 } } };
-            window.AppWindow.MoveAndResize(new RectInt32((int)d.NativeBounds.Origin.X+40,(int)d.NativeBounds.Origin.Y+40,500,150)); window.Activate(); identifiers.Add(window);
-        }
-        await Task.Delay(2000); foreach(var window in identifiers) window.Close(); identifiers.Clear();
+        if(Active||closingRequested)return;
+        var cancellation=new CancellationTokenSource();identificationCancellation=cancellation;
+        var owned=new List<(Window Window,TaskCompletionSource Closed)>();
+        identificationTask=new IdentifyOperation(operations).RunAsync(()=> {
+            foreach(var display in displays) {
+                var window=new Window { Title="Identify Display",Content=new Border { Padding=new Thickness(24),Background=(Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],Child=new TextBlock { Text=display.Name,TextWrapping=TextWrapping.Wrap,FontSize=28 } } };
+                var closed=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                owned.Add((window,closed));window.Closed+=(_,_)=>closed.TrySetResult();
+                window.AppWindow.MoveAndResize(new RectInt32((int)display.NativeBounds.Origin.X+40,(int)display.NativeBounds.Origin.Y+40,500,150));window.Activate();
+            }
+        },async()=> {
+            foreach(var entry in owned)if(!entry.Closed.Task.IsCompleted)entry.Window.Close();
+            await Task.WhenAll(owned.Select(entry=>entry.Closed.Task));owned.Clear();
+        },token=>Task.Delay(2000,token),cancellation.Token);
+        Poll();
+        try{await identificationTask;}
+        catch(OperationCanceledException){ }
+        catch(Exception error){await Error("Display identification failed: "+error.Message);}
+        finally{identificationCancellation=null;cancellation.Dispose();Poll();if(closingRequested)_=CompleteCloseAsync();}
     }
 }

@@ -22,6 +22,7 @@ public sealed class SourceSeekReadinessTests {
     [Fact] public async Task AlreadyAtTargetIsExplicitNoOpWithoutASeekAssignmentOrEvent() {
         var native=new Session { Current=Target };var actual=await SourceSeekReadiness.WaitAsync(native,Target,Start,End,()=>true);
         Assert.Equal(Target,actual);Assert.Equal(0,native.Assignments);Assert.Equal(0,native.Subscribers);
+        using var canceled=new CancellationTokenSource();canceled.Cancel();await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>SourceSeekReadiness.WaitAsync(native,Target,Start,End,()=>true,canceled.Token));Assert.Equal(0,native.Assignments);
     }
     [Fact] public async Task CancellationTimeoutAndNativeFailureLeaveNoReadyResultOrEventSubscriptions() {
         var canceled=new Session();using var cancellation=new CancellationTokenSource();

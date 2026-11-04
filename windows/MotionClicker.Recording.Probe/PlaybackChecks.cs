@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using MotionClicker.Windows.Recording;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
@@ -25,7 +26,8 @@ static class PlaybackChecks {
         await opened.Task.WaitAsync(TimeSpan.FromSeconds(20));
         Console.WriteLine($"PLAYER opened width={player.PlaybackSession.NaturalVideoWidth}; height={player.PlaybackSession.NaturalVideoHeight}; durationTicks={player.PlaybackSession.NaturalDuration.Ticks}");
         if(player.PlaybackSession.NaturalVideoWidth!=64||player.PlaybackSession.NaturalVideoHeight!=64)throw new Exception("Native player video not ready");
-        player.PlaybackSession.Position=TimeSpan.FromTicks(1_000_000);player.Play();
+        using var seekSession=new NativePlaybackSeekSession(player);
+        _=await SourceSeekReadiness.WaitAsync(seekSession,TimeSpan.FromTicks(1_000_000),TimeSpan.Zero,TimeSpan.FromTicks(1_070_000),()=>true);player.Play();
         await ended.Task.WaitAsync(TimeSpan.FromSeconds(20));
         if(frames==0)throw new Exception("No native player decoded frame notification");
         var position=player.PlaybackSession.Position.Ticks;

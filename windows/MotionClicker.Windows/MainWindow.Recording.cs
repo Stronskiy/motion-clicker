@@ -117,7 +117,8 @@ internal sealed partial class MainWindow {
         if(finishingClose||closeApproved)return;finishingClose=true;
         try {
             status.Text="Closing · waiting for owned work to stop safely…";
-            openingCancellation?.Cancel();
+            openingCancellation?.Cancel();identificationCancellation?.Cancel();
+            if(identificationTask is not null)try{await identificationTask;}catch{ }
             await recording.StopAsync("Application closing");
             if(worker is not null)await worker.StopAsync("Application closing");
             if(openingTask is not null)try{await openingTask;}catch{ }

@@ -1,5 +1,5 @@
 namespace MotionClicker.Windows.RecordingUI;
-public enum AppOperation { Execution, Recording, Opening, ChoosingDestination }
+public enum AppOperation { Execution, Recording, Opening, ChoosingDestination, IdentifyingDisplays }
 /// <summary>One app-wide ownership gate. Paused execution retains its lease until explicit Stop.</summary>
 public sealed class AppOperationGate {
     private Lease? current;

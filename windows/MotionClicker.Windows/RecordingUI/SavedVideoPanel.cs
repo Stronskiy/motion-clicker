@@ -21,13 +21,15 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
     private readonly CancellationTokenSource closing=new();
     private MediaPlayer? player;
     private MediaSource? source;
+    private NativePlaybackSeekSession? pendingSeekSession;
+    private CancellationTokenSource? pendingRequest;
     private SourceGapWindow? window;
     private RecordedBundleMedia? currentMedia;
     private long sourceUs,generation;
     private bool settingControls,working,disposed;
     private Query? latest;
     public string? InspectionFailure { get; private set; }
-    private sealed record Query(long Generation,RecordedBundleMedia Media,long SourceUs,bool Play);
+    private sealed record Query(long Generation,RecordedBundleMedia Media,long SourceUs,bool Play,CancellationToken Cancellation);
     public SavedVideoPanel(BundleInspection inspection) {
         this.inspection=inspection;Spacing=12;
         var snapshot=inspection.Snapshot;gaps=new(snapshot.GapsFile,inspection.Manifest.DurationUs,inspection.Manifest.Streams);
@@ -66,19 +68,20 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
     private void Request(long value,bool autoPlay) {
         if(disposed)return;
         var selected=monitor.SelectedItem as MonitorSlot;currentMedia=inspection.Media.FirstOrDefault(m=>m.MonitorSlotId==selected?.Id);
-        generation++;SetPosition(value);Mask("Inspecting complete video gap history…");
+        generation++;CancelPendingRequest();SetPosition(value);Mask("Inspecting complete video gap history…");
         if(currentMedia is null){latest=null;Mask("No successful video for this display. Inspect the manifest failure details.");return;}
         if(inspection.Issues.Any(i=>i.StartsWith(currentMedia.MonitorSlotId+":",StringComparison.Ordinal))){latest=null;Mask("Native media validation failed for this display. Playback is unavailable.");return;}
         if(value<currentMedia.MediaTimeZeroUs){latest=null;Mask($"No source image yet · first image at {currentMedia.MediaTimeZeroUs/1_000_000d:0.000000}s");return;}
         if(value>=inspection.Manifest.DurationUs||value-currentMedia.MediaTimeZeroUs>=currentMedia.EncodedDurationUs){latest=null;Mask("No source image after the valid video prefix.");return;}
-        latest=new(generation,currentMedia,value,autoPlay);if(!working)_=ProcessAsync();
+        pendingRequest=CancellationTokenSource.CreateLinkedTokenSource(closing.Token);
+        latest=new(generation,currentMedia,value,autoPlay,pendingRequest.Token);if(!working)_=ProcessAsync();
     }
     private async Task ProcessAsync() {
         working=true;long activeGeneration=generation;
         try {
             while(latest is Query query&&!disposed) {
                 latest=null;activeGeneration=query.Generation;
-                var inspected=await gaps.WindowAsync(query.Media.MonitorSlotId,query.SourceUs,closing.Token);
+                var inspected=await gaps.WindowAsync(query.Media.MonitorSlotId,query.SourceUs,query.Cancellation);
                 if(query.Generation!=generation)continue;
                 window=inspected;
                 if(!SourcePlayback.TryRange(query.Media,inspected,query.SourceUs,out var pts,out var endpoint)) { Mask(inspected.Kind is null?"Source time exceeds native playback limits.":$"Known video gap: {inspected.Kind} · no image is displayed");continue; }
@@ -101,10 +104,15 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
                     Mask("Playback reached the end of the inspected source interval. Seek deliberately to inspect another time.");
                 });
                 surface.SetMediaPlayer(native);native.Source=item;
-                await opened.Task.WaitAsync(TimeSpan.FromSeconds(20),closing.Token);
+                await opened.Task.WaitAsync(TimeSpan.FromSeconds(20),query.Cancellation);
                 if(query.Generation!=generation||disposed){ReleasePlayer();continue;}
-                using var seekSession=new NativePlaybackSeekSession(native);
-                _=await SourceSeekReadiness.WaitAsync(seekSession,pts,TimeSpan.FromTicks(checked(Math.Max(0,inspected.StartUs-query.Media.MediaTimeZeroUs)*10)),endpoint,()=>query.Generation==Volatile.Read(ref generation)&&!Volatile.Read(ref disposed),closing.Token);
+                using var seekSession=new NativePlaybackSeekSession(native);pendingSeekSession=seekSession;
+                // MediaOpened is not seek readiness. Keep masking/working through the native acknowledgment.
+                var actual=await SourceSeekReadiness.WaitAsync(seekSession,pts,TimeSpan.FromTicks(checked(Math.Max(0,inspected.StartUs-query.Media.MediaTimeZeroUs)*10)),endpoint,()=>query.Generation==Volatile.Read(ref generation)&&!Volatile.Read(ref disposed),query.Cancellation);
+                if(query.Cancellation.IsCancellationRequested||query.Generation!=generation||disposed){ReleasePlayer();continue;}
+                var landedSource=checked(query.Media.MediaTimeZeroUs+actual.Ticks/10);
+                if(!inspected.Contains(query.Media.MonitorSlotId,landedSource))throw new RecordingException("Native seek did not resolve to the approved source interval");
+                SetPosition(landedSource);
                 surface.Visibility=Visibility.Visible;unavailable.Visibility=Visibility.Collapsed;play.IsEnabled=true;pause.IsEnabled=true;
                 if(query.Play)native.Play();
             }
@@ -119,7 +127,8 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
         SetPosition(value);
     }
     public void ResumeInspection()=>Request(sourceUs,false);
-    public void StopPlayback(){generation++;latest=null;player?.Pause();}
-    private void ReleasePlayer(){surface.SetMediaPlayer(null);if(player is not null){player.Source=null;player.Dispose();player=null;}source?.Dispose();source=null;}
-    public void Dispose(){if(disposed)return;disposed=true;generation++;latest=null;closing.Cancel();ReleasePlayer();}
+    private void CancelPendingRequest(){pendingRequest?.Cancel();pendingRequest?.Dispose();pendingRequest=null;}
+    public void StopPlayback(){generation++;latest=null;CancelPendingRequest();player?.Pause();}
+    private void ReleasePlayer(){pendingSeekSession?.Dispose();pendingSeekSession=null;surface.SetMediaPlayer(null);if(player is not null){player.Source=null;player.Dispose();player=null;}source?.Dispose();source=null;}
+    public void Dispose(){if(disposed)return;disposed=true;generation++;latest=null;CancelPendingRequest();closing.Cancel();ReleasePlayer();}
 }
