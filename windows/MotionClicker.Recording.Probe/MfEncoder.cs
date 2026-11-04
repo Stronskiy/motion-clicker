@@ -37,7 +37,7 @@ static class MfEncoder
                     {
                         Console.WriteLine($"MF transform index={i}; category={category}");
                         if(category!=TransformCategoryGuids.VideoProcessor)continue;
-                        using var transformAttributes=transform.GetAttributes();
+                        using var transformAttributes=transform.Attributes;
                         transformAttributes.Set(MediaAttributeKeys.XvpDisableFrcGuid,1u);
                         configured=true;break;
                     }
