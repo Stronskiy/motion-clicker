@@ -134,6 +134,7 @@ struct CaptureProgress: Sendable {
         guard !polling, ownsOperation, phase == .recording || phase == .starting, let capture else { return }
         polling = true; defer { polling = false }
         let p = await capture.progress()
+        guard self.capture === capture, ownsOperation, phase == .recording || phase == .starting else { return }
         accepted = p.accepted; dropped = p.dropped
         if p.state == .failed || p.state == .interrupted || p.state == .finalizing || p.state == .completed {
             if let reason = p.reason { message = reason }

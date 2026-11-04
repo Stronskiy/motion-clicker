@@ -170,6 +170,24 @@ import MotionClickerMacRecording
         await retry.value; await quit.value
         XCTAssertTrue(quitAcknowledged); XCTAssertEqual(flow.phase,.saved); XCTAssertFalse(gate.busy)
     }
+    func testLateProgressFromClosedCaptureCannotStopANewPreparedTake() async {
+        let old=FakeCapture(), next=FakeCapture(), gate=AppOperationGate()
+        var instances=0
+        let flow=RecordingFlow(gate:gate,makeCapture:{ instances += 1; return instances == 1 ? old : next },create:{_ in},sleep:{_ in})
+        await flow.prepare(targets:[],destination:URL(filePath:"/tmp/old.motionclicker"))
+        flow.countdown(seconds:1); await settle { flow.phase == .recording }
+        old.holdProgress=true; old.progressState = .interrupted
+        let poll=Task { await flow.poll() }
+        await settle { old.progressWaiter != nil }
+        await flow.stop()
+        await flow.prepare(targets:[],destination:URL(filePath:"/tmp/new.motionclicker"))
+        old.progressWaiter?.resume(); old.progressWaiter=nil
+        await poll.value
+        XCTAssertEqual(flow.phase,.ready)
+        XCTAssertEqual(next.calls,["prepare"])
+        XCTAssertTrue(gate.busy)
+        await flow.stop()
+    }
     func testControlRegionsConvertAppKitOriginAndReplaceSnapshot() {
         let regions = ControlRegions()
         regions.replace(appKitRects: [CGRect(x: -100, y: 100, width: 80, height: 40)], primaryHeight: 900)

@@ -31,11 +31,12 @@ import MotionClickerRecording
         let player=AVPlayer(url:late.file)
         let sought=await player.seek(to:CMTime(value:500_000,timescale:1_000_000),toleranceBefore:.zero,toleranceAfter:.zero)
         XCTAssertTrue(sought)
-        for _ in 0..<100 {
-            if player.currentItem?.status == .readyToPlay { break }
+        let readyClock=_Concurrency.ContinuousClock()
+        let readyDeadline=readyClock.now.advanced(by:.seconds(10))
+        while player.currentItem?.status == .unknown && readyClock.now < readyDeadline {
             try await Task.sleep(for:.milliseconds(10))
         }
-        XCTAssertEqual(player.currentItem?.status,.readyToPlay)
+        XCTAssertEqual(player.currentItem?.status,.readyToPlay,"Native player status=\(String(describing:player.currentItem?.status.rawValue)) error=\(String(describing:player.currentItem?.error))")
         let fileUs=CMTimeConvertScale(player.currentTime(),timescale:1_000_000,method:.roundHalfAwayFromZero).value
         XCTAssertEqual(fileUs+late.mediaTimeZeroUs,2_000_000)
         player.play(); XCTAssertEqual(player.rate,1); player.pause(); player.replaceCurrentItem(with:nil)
