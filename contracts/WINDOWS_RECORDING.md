@@ -215,3 +215,21 @@ permissions/revocation, actual Windows GUI, mixed DPI/topology/session/sleep,
 long-run memory/storage and ten-minute/two-monitor<=50ms remain UNVERIFIED until
 controlled runtime evidence. The native capability probe is not the next user
 build or the requested finished recorder.
+
+## Task6 UI integration boundary (in progress)
+
+WinUI controls live in `RecordingUI/`, outside the native adapter's `Recording/`
+compile glob. `RecordingWorkspace` is the native-free, injected orchestration
+boundary. `IRecordingWorkspaceServices` owns exclusive destination creation,
+controller construction and cancellable countdown; `IRecordingTake` owns inert
+Prepare, deliberate Start, idempotent Stop, initial project commit, progress and
+recovery. Construction and display selection never call a native producer.
+`WorkspacePhase` distinguishes native finalization from filesystem Saving; Saved
+requires SaveInitial's project commit. The app operation gate must include paused
+Run and unresolved owned-input release, and all recording/open work.
+
+Native playback will be selected only after the synthetic generated H264 probe
+verifies source readiness, offsets and a native endpoint independent of UI polling.
+Candidate is MediaPlayer/MediaPlaybackItem with native DurationLimit, hosted by
+WinUI MediaPlayerElement. Source files remain read-only. Complete gapsFile lookup
+is authoritative; the first64 manifest gaps are only a validation preview.
