@@ -3,17 +3,26 @@ using System.Collections.Concurrent;
 namespace MotionClicker.Windows.Recording;
 
 internal sealed record WindowsEncodedFrame(long SourceTicks,long EncodedTicks,long DurationTicks);
+internal interface IWindowsEncoderWorker
+{
+    Task Ready { get; }
+    Task<NativeWriterResult> Closed { get; }
+    bool Submit(WindowsTimedFrame frame);
+    bool TryAcknowledge(out WindowsEncodedFrame? frame);
+    void Finish();
+    void Quarantine();
+}
 
 // Native writer creation, append, finalization and disposal all run on this thread.
-internal sealed class WindowsEncoderWorker
+internal sealed class WindowsEncoderWorker : IWindowsEncoderWorker
 {
     private readonly BlockingCollection<WindowsTimedFrame> input=new(3);
     private readonly BlockingCollection<WindowsEncodedFrame> acknowledged=new(3);
     private readonly CancellationTokenSource quarantine=new();
     private readonly TaskCompletionSource ready=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<NativeWriterResult> closed=new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal Task Ready=>ready.Task;
-    internal Task<NativeWriterResult> Closed=>closed.Task;
+    public Task Ready=>ready.Task;
+    public Task<NativeWriterResult> Closed=>closed.Task;
     internal WindowsEncoderWorker(Func<IWindowsVideoEncoder> create,Action<string> fault,Action wake)
     {
         new Thread(()=>
@@ -41,9 +50,9 @@ internal sealed class WindowsEncoderWorker
             }
         }){IsBackground=true,Name="Motion Clicker recording encoder"}.Start();
     }
-    internal bool Submit(WindowsTimedFrame frame)=>!input.IsAddingCompleted&&input.TryAdd(frame);
-    internal bool TryAcknowledge(out WindowsEncodedFrame? frame)=>acknowledged.TryTake(out frame);
-    internal void Finish()=>input.CompleteAdding();
+    public bool Submit(WindowsTimedFrame frame)=>!input.IsAddingCompleted&&input.TryAdd(frame);
+    public bool TryAcknowledge(out WindowsEncodedFrame? frame)=>acknowledged.TryTake(out frame);
+    public void Finish()=>input.CompleteAdding();
     // Cancels managed acknowledgment waits only. Never disposes under a live COM call.
-    internal void Quarantine(){quarantine.Cancel();input.CompleteAdding();}
+    public void Quarantine(){quarantine.Cancel();input.CompleteAdding();}
 }

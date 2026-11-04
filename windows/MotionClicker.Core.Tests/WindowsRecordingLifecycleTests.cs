@@ -54,9 +54,62 @@ public sealed class WindowsRecordingLifecycleTests
         internal readonly string Root=Path.Combine(Path.GetTempPath(),"mc-lifecycle-"+Guid.NewGuid());
         internal readonly Platform Platform=new();
         internal readonly WindowsRecordingController Controller;
-        internal Fixture(Func<WindowsPointerSample,bool>? control=null){Directory.CreateDirectory(Root);Controller=new(new(99,control??(_=>false)),Platform);}
+        internal Fixture(Func<WindowsPointerSample,bool>? control=null,
+            Func<Func<IWindowsVideoEncoder>,Action<string>,Action,IWindowsEncoderWorker>? worker=null)
+        {Directory.CreateDirectory(Root);Controller=new(new(99,control??(_=>false)),Platform,worker);}
         internal Task<WindowsRecordingPreparation> Prepare()=>Controller.PrepareAsync([RecordingSessionTests.Targets()[0]],Root,"take");
         public async ValueTask DisposeAsync(){await Controller.DisposeAsync();Directory.Delete(Root,true);}
+    }
+    // Exact producer/consumer interleaving: final Drain sees empty, then observing
+    // Closed publishes the already-appended acknowledgment before returning closed.
+    private sealed class ClosingRaceWorker(Func<IWindowsVideoEncoder> create,bool mismatch=false) : IWindowsEncoderWorker
+    {
+        private readonly IWindowsVideoEncoder encoder=create();
+        private readonly TaskCompletionSource<NativeWriterResult> closed=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private NativeWriterResult? terminal;
+        private WindowsEncodedFrame? ack;
+        private bool released;
+        internal bool EmptyDrainObserved;
+        public Task Ready=>Task.CompletedTask;
+        public Task<NativeWriterResult> Closed
+        {
+            get
+            {
+                if(terminal is not null&&EmptyDrainObserved)
+                {released=true;closed.TrySetResult(mismatch?terminal with {FrameCount=terminal.FrameCount+1}:terminal);}
+                return closed.Task;
+            }
+        }
+        public bool Submit(WindowsTimedFrame frame)
+        {
+            encoder.Append(frame.Bgra,frame.SourceTicks,frame.DurationTicks);
+            ack=new(frame.SourceTicks,frame.EncodedTicks,frame.DurationTicks);return true;
+        }
+        public bool TryAcknowledge(out WindowsEncodedFrame? frame)
+        {
+            if(!released){if(terminal is not null)EmptyDrainObserved=true;frame=null;return false;}
+            frame=ack;ack=null;return frame is not null;
+        }
+        public void Finish()=>terminal??=encoder.Finish();
+        public void Quarantine(){encoder.Dispose();}
+    }
+    [Fact] public async Task FinalAckPublishedBetweenEmptyDrainAndClosedIsIncludedBeforeTerminal()
+    {
+        ClosingRaceWorker? worker=null;
+        await using var f=new Fixture(worker:(create,_,_)=>worker=new(create));
+        await f.Prepare();var start=f.Controller.StartAsync();await WaitForState(f.Controller,RecordingState.Recording);
+        f.Platform.Frame(1_000_010);await start;Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        var done=(await f.Controller.StopAsync())!;
+        Assert.True(worker!.EmptyDrainObserved);Assert.Equal(1,done.Manifest.Streams[0].FrameCount);
+        Assert.Equal(RecordingState.Completed,done.Manifest.State);
+    }
+    [Fact] public async Task NativeTerminalCountMismatchQuarantinesBeforePublication()
+    {
+        await using var f=new Fixture(worker:(create,_,_)=>new ClosingRaceWorker(create,mismatch:true));
+        await f.Prepare();var start=f.Controller.StartAsync();await WaitForState(f.Controller,RecordingState.Recording);
+        f.Platform.Frame(1_000_010);await start;Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StopAsync());
+        Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
     }
     [Fact] public async Task PreparationIsInertAndStopBeforeEpochClosesEveryWriter()
     {

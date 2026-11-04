@@ -9,7 +9,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         internal readonly RecordingTarget Target=target;
         internal readonly WindowsRecordingDisplay Display=display;
-        internal WindowsEncoderWorker Encoder=null!;
+        internal IWindowsEncoderWorker Encoder=null!;
         internal IWindowsRecordingSource? Source;
         internal WindowsStreamTimeline? Timeline;
         internal readonly WindowsImageMailbox Mailbox=new();
@@ -19,6 +19,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     }
     internal const long DeadlineUs=10_000_000;
     private readonly IWindowsRecordingPlatform platform;
+    private readonly Func<Func<IWindowsVideoEncoder>,Action<string>,Action,IWindowsEncoderWorker> encoderWorker;
     private readonly WindowsPointerAdapter pointerAdapter;
     private readonly BlockingCollection<Action> commands=new(16);
     private readonly BlockingCollection<WindowsPointerSample> pointers=new(1024);
@@ -44,10 +45,12 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private bool prepared,timelinesStopped,encodersStopping,exiting;
     private WindowsRecordingCompletion? completion;
 
-    internal WindowsRecordingController(WindowsRecordingOptions options,IWindowsRecordingPlatform platform)
+    internal WindowsRecordingController(WindowsRecordingOptions options,IWindowsRecordingPlatform platform,
+        Func<Func<IWindowsVideoEncoder>,Action<string>,Action,IWindowsEncoderWorker>? encoderWorker=null)
     {
         ArgumentNullException.ThrowIfNull(options);ArgumentNullException.ThrowIfNull(options.IsControl);
         this.platform=platform;pointerAdapter=new(options);
+        this.encoderWorker=encoderWorker??((create,fault,wake)=>new WindowsEncoderWorker(create,fault,wake));
         new Thread(()=>{while(!safetyStop.Token.WaitHandle.WaitOne(100))SafetyTick();})
             {IsBackground=true,Name="Motion Clicker recording watchdog"}.Start();
         new Thread(Owner){IsBackground=true,Name="Motion Clicker recording owner"}.Start();
@@ -79,7 +82,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
                 foreach(var stream in streams)
                 {
                     var path=store.MediaFile(stream.Target.Slot.Id);
-                    stream.Encoder=new(()=>platform.Encoder(path,stream.Display.PixelWidth,stream.Display.PixelHeight),Interrupt,()=>wake.Set());
+                    stream.Encoder=encoderWorker(()=>platform.Encoder(path,stream.Display.PixelWidth,stream.Display.PixelHeight),Interrupt,()=>wake.Set());
                 }
                 prepareCancellation=cancellation.Register(()=>Interrupt("Recording preparation canceled"));
             }
