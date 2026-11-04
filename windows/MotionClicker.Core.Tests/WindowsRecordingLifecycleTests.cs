@@ -26,15 +26,22 @@ public sealed class WindowsRecordingLifecycleTests
         internal Action<WindowsVideoFrame>? Image;
         internal Action<WindowsPointerSample>? Sample;
         internal Action<string>? Fault;
+        internal readonly Dictionary<string,Source> Sources=[];
+        internal readonly Dictionary<string,Action<WindowsVideoFrame>> Images=[];
+        internal bool EncoderFails;
         internal int Encoders,Finishes;
         public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)=>targets.Select(t=>new WindowsRecordingDisplay(t.Slot.Id,t.Display.Id,400,200)).ToArray();
-        public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault){Image=image;Fault=fault;return Video;}
+        public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)
+        {
+            Image??=image;Fault=fault;Images.Add(target.Slot.Id,image);
+            var source=Sources.Count==0?Video:new Source();Sources.Add(target.Slot.Id,source);return source;
+        }
         public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault){Sample=sample;return Hook;}
         public IWindowsVideoEncoder Encoder(string path,int width,int height){Interlocked.Increment(ref Encoders);return new EncoderFake(this,path);}
         private sealed class EncoderFake(Platform platform,string path) : IWindowsVideoEncoder
         {
             private long count,end,zero;
-            public void Append(byte[] bgra,long sourceTicks,long durationTicks){if(count==0)zero=sourceTicks;count++;end=sourceTicks-zero+durationTicks;File.WriteAllBytes(path,[1,2,3]);}
+            public void Append(byte[] bgra,long sourceTicks,long durationTicks){if(platform.EncoderFails)throw new IOException("encoder/disk failure");if(count==0)zero=sourceTicks;count++;end=sourceTicks-zero+durationTicks;File.WriteAllBytes(path,[1,2,3]);}
             public NativeWriterResult Finish(){Interlocked.Increment(ref platform.Finishes);return new(count>0,count,end,count>0?null:"No captured images");}
             public void Dispose() { }
         }
@@ -131,6 +138,47 @@ public sealed class WindowsRecordingLifecycleTests
         finally{release.Set();}
         var done=await f.Controller.StopAsync();Assert.Equal(RecordingState.Interrupted,done!.Manifest.State);
         Assert.Contains("Pointer mailbox overflow",done.Manifest.Reason);
+    }
+    [Fact] public async Task UnexpectedNativeThreadExitInterruptsWholeTake()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_100_000);f.Platform.Hook.ClosedSignal.TrySetResult();
+        Assert.True(SpinWait.SpinUntil(()=>Volatile.Read(ref f.Platform.Video.Stops)>0,TimeSpan.FromSeconds(2)));
+        Assert.Equal(RecordingState.Interrupted,(await f.Controller.StopAsync())!.Manifest.State);
+    }
+    [Fact] public async Task SourceFailureFinalizesEverySelectedWriter()
+    {
+        await using var f=new Fixture();await f.Controller.PrepareAsync(RecordingSessionTests.Targets(),f.Root,"take");
+        var start=f.Controller.StartAsync();await WaitForState(f.Controller,RecordingState.Recording);
+        f.Platform.Frame(1_000_010);f.Platform.Images["right"](new(new byte[400*200*4],10_000_200));await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_100_000);f.Platform.Fault!("display topology changed");
+        var done=await f.Controller.StopAsync();Assert.Equal(2,done!.Manifest.Streams.Length);Assert.Equal(2,f.Platform.Finishes);
+        Assert.All(f.Platform.Sources.Values,s=>Assert.Equal(1,s.Stops));Assert.Equal(1,f.Platform.Hook.Stops);
+        Assert.Equal(RecordingState.Interrupted,done.Manifest.State);
+    }
+    [Fact] public async Task EncoderFailureDuringStopCannotBecomeComplete()
+    {
+        await using var f=new Fixture();f.Platform.EncoderFails=true;await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_100_000);var done=await f.Controller.StopAsync();
+        Assert.Equal(RecordingState.Interrupted,done!.Manifest.State);Assert.Equal(0,done.Manifest.Streams[0].FrameCount);
+        Assert.Equal(WriterStatus.Failed,done.Manifest.Streams[0].WriterStatus);Assert.Equal(1,f.Platform.Finishes);
+    }
+    [Fact] public async Task HookInstallFailureHasNoEpochAndLeavesRecoverableStaging()
+    {
+        await using var f=new Fixture();f.Platform.Hook.AutoReady=false;f.Platform.Hook.ReadySignal.TrySetException(new IOException("hook installation failed"));
+        await f.Prepare();await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StartAsync());
+        Assert.Null(await f.Controller.StopAsync());Assert.Equal(1,f.Platform.Finishes);
+        Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
+    }
+    [Fact] public async Task PreparationCancellationNeverStartsSourcesOrOverwritesPriorSave()
+    {
+        await using var f=new Fixture();var old=Path.Combine(f.Root,"prior.json");File.WriteAllText(old,"prior save");
+        using var cancel=new CancellationTokenSource();cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>f.Controller.PrepareAsync([RecordingSessionTests.Targets()[0]],f.Root,"take",cancel.Token));
+        Assert.Null(await f.Controller.StopAsync());Assert.Equal("prior save",File.ReadAllText(old));
+        Assert.Equal(0,f.Platform.Video.Starts);Assert.Equal(0,f.Platform.Hook.Starts);
     }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
