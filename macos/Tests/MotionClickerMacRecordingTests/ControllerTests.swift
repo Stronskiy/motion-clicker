@@ -106,10 +106,13 @@ final class ObservationTestClock: @unchecked Sendable {
         d.earlyStaticReady(try XCTUnwrap(pixel)); try await start.value
         try await Task.sleep(for: .milliseconds(60))
         let progress = await c.snapshot()
-        XCTAssertEqual(progress.state, .interrupted)
+        // The initialization deadline must have fired; native drain/publication
+        // may still be in progress on a loaded machine. Await its API boundary.
+        XCTAssertTrue(progress.state == .finalizing || progress.state == .interrupted)
         XCTAssertTrue(progress.reason?.contains("post-epoch image") == true)
         XCTAssertTrue(progress.reason?.contains("a") == true)
         let stopped = try await c.stop()
+        XCTAssertEqual(stopped?.manifest.state, .interrupted)
         XCTAssertEqual(stopped?.manifest.streams.first?.frameCount, 0)
         XCTAssertNil(stopped?.manifest.streams.first?.mediaTimeZeroUs)
     }
