@@ -14,6 +14,9 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
     <ProjectReference Include="../MotionClicker.Core/MotionClicker.Core.csproj" />
     <Compile Include="../MotionClicker.Windows/RecordingUI/RecordingWorkspace.cs" Link="RecordingWorkspace.cs" />
+    <Compile Include="../MotionClicker.Windows/RecordingUI/AppOperationGate.cs" Link="AppOperationGate.cs" />
+    <Compile Include="../MotionClicker.Windows/RecordingUI/ControlRegions.cs" Link="ControlRegions.cs" />
+    <Compile Include="../MotionClicker.Windows/RecordingUI/CompleteGapLookup.cs" Link="CompleteGapLookup.cs" />
     <Compile Include="../MotionClicker.Windows/MonitorMapLayout.cs" Link="MonitorMapLayout.cs" />
     <Compile Include="../MotionClicker.Windows/WindowSizing.cs" Link="WindowSizing.cs" />
     <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingClock.cs" Link="WindowsRecordingClock.cs" />
