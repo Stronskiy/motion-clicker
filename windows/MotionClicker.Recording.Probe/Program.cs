@@ -61,6 +61,21 @@ static class Probe
                 await Task.Run(()=>WriterChecks.Encode(path,PixelChecks.Pattern(),[0],[333333])).WaitAsync(TimeSpan.FromSeconds(45));
                 PixelChecks.DecodeAndCheck(path);
             } catch(Exception error) { failures.Add("decoded orientation: "+error);Console.WriteLine("FAIL decoded orientation: "+error.Message); }
+            foreach(int hz in new[]{60,120})
+            {
+                try
+                {
+                    var cadence=new MotionClicker.Windows.Recording.WindowsFrameCadence(5_000_000);
+                    var timestamps=Enumerable.Range(0,hz).Select(i=>50_000_000L+i*10_000_000L/hz).Where(cadence.Select).ToArray();
+                    if(timestamps.Length!=30)throw new Exception($"{hz}Hz selection produced {timestamps.Length} images");
+                    var durations=timestamps.Select((pts,i)=>(i+1<timestamps.Length?timestamps[i+1]:60_000_000)-pts).ToArray();
+                    var path=Path.Combine(directory,$"cadence-{hz}.mp4");
+                    await Task.Run(()=>WriterChecks.Encode(path,PixelChecks.Pattern(),timestamps,durations)).WaitAsync(TimeSpan.FromSeconds(45));
+                    Read(path,timestamps,durations);
+                    Console.WriteLine($"PASS native {hz}Hz source ->30 original source-QPC images, unchanged selected PTS/durations/no audio");
+                }
+                catch(Exception error){failures.Add($"{hz}Hz cadence: "+error);}
+            }
             foreach(var test in cases)
             {
                 var path=Path.Combine(directory,$"{test.Name}.mp4");

@@ -25,9 +25,13 @@ public sealed class WindowsFrameCadenceTests
         var cadence=new WindowsFrameCadence(1_005_000);
         Assert.False(cadence.Select(10_000_000));Assert.True(cadence.Select(10_060_000));
         Assert.False(cadence.Select(10_070_000));Assert.True(cadence.Select(19_000_000));
-        var timeline=new WindowsStreamTimeline(1_005_000,_=>true,(_,_,_,_)=>throw new Exception("False VFR gap"));
+        var encoded=new List<WindowsTimedFrame>();
+        var timeline=new WindowsStreamTimeline(1_005_000,f=>{encoded.Add(f);return true;},(_,_,_,_)=>throw new Exception("False VFR gap"));
         timeline.Image(new([1],10_060_000));timeline.Image(new([2],19_000_000));timeline.Stop(20_000_000);
         Assert.Null(timeline.Failure);
+        Assert.Equal(new long[]{10_060_000,19_000_000},encoded.Select(f=>f.SourceTicks));
+        Assert.Equal(1000,new MediaClockMapper(0,0,10_000_000,1_005_000).Map(encoded[0].SourceTicks));
+        Assert.True(new WindowsFrameCadence(1_005_000).Select(10_070_000)); // New generation has fresh admission state.
     }
     [Fact] public void ExtremeSourceClockUsesInt128AndReversedOrDuplicateTimeRejects()
     {
@@ -43,7 +47,8 @@ public sealed class WindowsFrameCadenceTests
         var cadence=new WindowsFrameCadence(1_000_000);var encoded=new List<WindowsTimedFrame>();var gaps=new List<(long,long)>();
         var timeline=new WindowsStreamTimeline(1_000_000,f=>{encoded.Add(f);return true;},(a,b,_,_)=>gaps.Add((a,b)));
         Assert.True(cadence.Select(10_000_000));timeline.Image(new([1],10_000_000));
-        Assert.False(cadence.Select(10_100_000));timeline.Drop(10_500_000,"real admitted-frame loss");timeline.Stop(12_000_000);
+        Assert.False(cadence.Select(10_100_000));Assert.True(cadence.Select(10_500_000));
+        timeline.Drop(10_500_000,"real admitted-frame loss");timeline.Stop(12_000_000);
         Assert.Single(encoded);Assert.Equal(500_000,encoded[0].DurationTicks);Assert.Equal([(10_500_000L,12_000_000L)],gaps);
     }
 }
