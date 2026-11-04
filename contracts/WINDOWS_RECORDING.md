@@ -275,3 +275,12 @@ InitializeWithWindow(actual HWND), verified against the pinned SDK and Microsoft
 AppWindow.Closing is canceled synchronously; cleanup runs asynchronously and a
 new Close is enqueued only after acknowledgment. There is no UI-thread Wait,
 Dispose under capture callbacks, unattended screen capture or injected QA input.
+
+The saved-source panel shows final take state/reason, each writer status/failure,
+first-image source offset and complete gap count. Switching displays preserves
+the source cursor; it never rebases the take to a file's zero. A current native
+player or complete-gap inspection failure disables Run as well as hiding video.
+Open errors remain visible until the next deliberate operation, rather than
+being overwritten by the periodic recording status display. Current Windows
+GUI appearance, keyboard/focus/picker and physical DPI behavior still need a
+controlled session; native source compilation is not that evidence.

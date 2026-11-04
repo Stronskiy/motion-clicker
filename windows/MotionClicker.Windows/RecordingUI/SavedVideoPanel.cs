@@ -31,12 +31,19 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
         this.inspection=inspection;Spacing=12;
         var snapshot=inspection.Snapshot;gaps=new(snapshot.GapsFile,inspection.Manifest.DurationUs,inspection.Manifest.Streams);
         Children.Add(new TextBlock { Text=inspection.CanRun?"Original source video · native H.264 validated. Map every display explicitly before Run.":"Inspection only · "+(inspection.Issues.Length>0?string.Join("\n",inspection.Issues):"Partial capture cannot run."),TextWrapping=TextWrapping.Wrap });
+        var sourceDetails=new List<string> { $"Take: {inspection.Manifest.State} · {inspection.Manifest.DurationUs/1_000_000d:0.000000}s original source" };
+        if(inspection.Manifest.Reason is not null)sourceDetails.Add(inspection.Manifest.Reason);
+        foreach(var stream in inspection.Manifest.Streams) {
+            var name=inspection.Project.MonitorSlots.First(s=>s.Id==stream.MonitorSlotId).Name;
+            sourceDetails.Add($"{name}: {stream.WriterStatus} · first image {(stream.MediaTimeZeroUs is long offset?$"{offset/1_000_000d:0.000000}s":"unavailable")} · {stream.GapCount} video gaps"+(stream.FailureReason is null?"":" · "+stream.FailureReason));
+        }
+        Children.Add(new TextBlock { Text=string.Join("\n",sourceDetails),TextWrapping=TextWrapping.Wrap,FontSize=12 });
         monitor.ItemsSource=inspection.Project.MonitorSlots;Children.Add(monitor);Children.Add(surface);Children.Add(unavailable);Children.Add(position);
         seek.Maximum=inspection.Manifest.DurationUs/1_000_000d;Children.Add(seek);
         var transport=new StackPanel { Orientation=Orientation.Horizontal,Spacing=8 };transport.Children.Add(play);transport.Children.Add(pause);Children.Add(transport);
         var actions=new ListView { Height=180,SelectionMode=ListViewSelectionMode.Single,ItemsSource=inspection.Actions };
         Children.Add(new TextBlock { Text="Recorded actions · source time · zero input",FontSize=13 });Children.Add(actions);
-        monitor.SelectionChanged+=(_,_)=>{if(!settingControls)Request(0,false);};
+        monitor.SelectionChanged+=(_,_)=>{if(!settingControls)Request(sourceUs,false);};
         seek.ValueChanged+=(_,args)=>{if(!settingControls)Request(FromSeconds(args.NewValue),false);};
         play.Click+=(_,_)=>Request(sourceUs,true);pause.Click+=(_,_)=>player?.Pause();
         actions.SelectionChanged+=(_,_)=> {
