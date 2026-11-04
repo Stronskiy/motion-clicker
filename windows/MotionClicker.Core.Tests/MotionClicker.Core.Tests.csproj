@@ -15,6 +15,15 @@
     <ProjectReference Include="../MotionClicker.Core/MotionClicker.Core.csproj" />
     <Compile Include="../MotionClicker.Windows/MonitorMapLayout.cs" Link="MonitorMapLayout.cs" />
     <Compile Include="../MotionClicker.Windows/WindowSizing.cs" Link="WindowSizing.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingClock.cs" Link="WindowsRecordingClock.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsPointerAdapter.cs" Link="WindowsPointerAdapter.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsStreamTimeline.cs" Link="WindowsStreamTimeline.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsHookWatchdog.cs" Link="WindowsHookWatchdog.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingPlatform.cs" Link="WindowsRecordingPlatform.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingController.cs" Link="WindowsRecordingController.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsEncoderWorker.cs" Link="WindowsEncoderWorker.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsImageMailbox.cs" Link="WindowsImageMailbox.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsFrameCadence.cs" Link="WindowsFrameCadence.cs" />
     <None Include="../../contracts/fixtures/recording/*.json" Link="fixtures/recording/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../contracts/fixtures/*.json" Link="fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
