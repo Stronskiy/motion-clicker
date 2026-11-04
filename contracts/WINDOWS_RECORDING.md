@@ -1,8 +1,8 @@
 # Native Windows recording API (Task3 contract)
 
-This contract specifies the Windows11 x64 native adapter source slice. It does not
-claim that the app has Record/Stop/Save/Open controls or that real capture/input
-and physical timing acceptance have been exercised. Existing RECORDING.md is
+This contract specifies the Windows11 x64 native adapter and native recording/
+saved-video UI source. Generated codec tests and fake UI lifecycle tests do not
+establish live capture/input, GUI rendering or physical timing acceptance. Existing RECORDING.md is
 binding; no project or recording wire/schema change is introduced.
 
 ## Implemented source boundary
@@ -11,7 +11,7 @@ The public controller below is implemented, with an injected platform seam for
 fake lifecycle faults and generated-only native encoder tests. Production uses
 exact frozen HMONITOR WGC sources, owned BGRA copies, a dedicated passive pointer
 hook, an independent watchdog, a named serial session/store owner and bounded
-same-thread MF encoder workers. No app recording UI is present. Compiling these
+same-thread MF encoder workers. The later Task6 section specifies the implemented WinUI source boundary. Compiling these
 paths and exercising generated pixels does not establish live capture, hook,
 Windows GUI, permissions, session/sleep/topology or physical timing acceptance.
 
@@ -34,7 +34,7 @@ mutation, silent reinstall or unsupported hook-installed query is used.
 
 ## Public surface
 
-The planned library namespace is `MotionClicker.Windows.Recording`, targeting
+The library namespace is `MotionClicker.Windows.Recording`, targeting
 `net10.0-windows10.0.26100.0`, minimum Windows11 22000, x64.
 
 - `WindowsRecordingOptions(nuint OwnInjectedTag, Func<WindowsPointerSample,bool> IsControl)`.
@@ -215,3 +215,85 @@ permissions/revocation, actual Windows GUI, mixed DPI/topology/session/sleep,
 long-run memory/storage and ten-minute/two-monitor<=50ms remain UNVERIFIED until
 controlled runtime evidence. The native capability probe is not the next user
 build or the requested finished recorder.
+
+## Task6 UI integration boundary
+
+WinUI controls live in `RecordingUI/`, outside the native adapter's `Recording/`
+compile glob. `RecordingWorkspace` is the native-free, injected orchestration
+boundary. `IRecordingWorkspaceServices` owns exclusive destination creation,
+controller construction and cancellable countdown; `IRecordingTake` owns inert
+Prepare, deliberate Start, idempotent Stop, initial project commit, progress and
+recovery. Construction and display selection never call a native producer.
+`WorkspacePhase` distinguishes native finalization from filesystem Saving; Saved
+requires SaveInitial's project commit. The app operation gate must include paused
+Run and unresolved owned-input release, and all recording/open work.
+
+Native playback uses MediaPlayer/MediaPlaybackItem with DurationLimit, hosted by
+WinUI MediaPlayerElement. Generated H264 probes verify headless frame-server
+readiness and native endpoint behavior; actual GUI rendering remains unverified. Source files remain read-only. Complete gapsFile lookup
+is authoritative; the first64 manifest gaps are only a validation preview.
+
+### Implemented orchestration decisions
+
+`RecordingTakeStatus?` distinguishes no epoch (null) from a published completed
+or partial result. `RecordingWorkspaceSnapshot` is immutable; the app polls it
+without UI/native-owner locks. One `AppOperationGate` lease spans countdown,
+source readiness, native finalization and project commit. An unacknowledged
+native Stop retains `CleanupBlocked` and its lease, with Retry Stop available;
+no disposal under live native work is attempted. `ControlRegions` copies physical
+rectangles and exposes a fast, allocation-free hook read. `RunnerSnapshot`
+includes nullable `OwnedButton`, acquired conservatively before dispatch and
+cleared only after successful owned release. Failed state alone is not idle.
+
+The generated probe on Windows26100 confirmed that frame-server MediaPlayer
+reaches native DurationLimit107ms after a seek to100ms, ending at exactly107ms
+without a UI timer. Default headless rendering opened but did not advance; that
+mode is not used as evidence. WinUI hosting will use MediaPlayerElement's native
+surface; the same MediaPlaybackItem DurationLimit constrains each inspected clear
+interval. System transport commands are disabled, so they cannot bypass the
+inspection controller. No known-gap auto-skip is permitted.
+
+`NativeVideoInspector.InspectAsync(path, frameCount, durationUs, pixelWidth,
+pixelHeight, cancellation)` is the explicit native codec boundary and returns
+coded/decoded count, file origin and native100ns duration. App inspection runs
+fresh ColdOpen with external owned scratch, then validates each resolved stream
+through the inspector before allowing Run. Partial sources and native failures
+remain inspectable, with failure text and no execution authorization. Open never
+constructs a capture writer. Pixel dimensions derive from frozen local size and
+scale; source file time stays independent of saved mediaTimeZeroUs.
+
+`RunWorker` now owns asynchronous Start/Stop/Pump execution and publishes a
+volatile immutable RunnerSnapshot. MainWindow never reads SafeRunner directly or
+waits for its dispatch/release lock. UI Stop/emergency/closing request cancellation
+then await worker acknowledgment. Paused retains the app lease. A Failed owned
+release retains the lease and hotkey, with Retry Stop reachable; start failure
+also consumes the ownership snapshot before releasing app exclusion.
+
+Native pickers use Windows.Storage.Pickers FileOpenPicker/FolderPicker with
+InitializeWithWindow(actual HWND), verified against the pinned SDK and Microsoft's
+[desktop UI-object guidance](https://learn.microsoft.com/windows/apps/develop/ui/display-ui-objects).
+AppWindow.Closing is canceled synchronously; cleanup runs asynchronously and a
+new Close is enqueued only after acknowledgment. There is no UI-thread Wait,
+Dispose under capture callbacks, unattended screen capture or injected QA input.
+
+The saved-source panel shows final take state/reason, each writer status/failure,
+first-image source offset and complete gap count. Switching displays preserves
+the source cursor; it never rebases the take to a file's zero. A current native
+player or complete-gap inspection failure disables Run as well as hiding video.
+Open errors remain visible until the next deliberate operation, rather than
+being overwritten by the periodic recording status display. Current Windows
+GUI appearance, keyboard/focus/picker and physical DPI behavior still need a
+controlled session; native source compilation is not that evidence.
+
+### Task6 review repair boundary
+
+`ISourceSeekSession` and `SourceSeekReadiness.WaitAsync` separate native
+SeekCompleted acknowledgment from setting Position and MediaOpened. The caller
+must remain masked/pending until this generation-bound check completes within
+the approved clear file-time interval; stale/canceled/timed-out/failed seeks
+cannot authorize display or Play. An already-at-target no-op is checked explicitly.
+`NativePlaybackSeekSession` bridges the pinned SDK's SeekCompleted/MediaFailed
+without UI or input dependencies. Generated-only native probes cover this boundary.
+`IdentifyOperation.RunAsync` owns display-identifier window admission, visible
+lifetime and final acknowledged closure through the app operation gate. Native
+windows must acknowledge Closed before this operation permits recording sources.

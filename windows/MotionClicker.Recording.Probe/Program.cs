@@ -96,6 +96,10 @@ static class Probe
                 byte[] bytes=new byte[pixels.Length];using(var reader=DataReader.FromBuffer(pixels))reader.ReadBytes(bytes);
                 await ControllerChecks.Run(directory,bytes).WaitAsync(TimeSpan.FromSeconds(45));
             } catch(Exception error) { failures.Add("controller: "+error); }
+            try { await PlaybackChecks.Run(directory); } catch(Exception error) { failures.Add("playback: "+error);Console.WriteLine("FAIL playback: "+error); }
+            try { await VideoInspectionChecks.Run(directory); } catch(Exception error) { failures.Add("inspection: "+error);Console.WriteLine("FAIL inspection: "+error); }
+            try { await BundlePlaybackChecks.Run(directory); } catch(Exception error) { failures.Add("bundle playback: "+error);Console.WriteLine("FAIL bundle playback: "+error); }
+            try { await PlaybackSeekChecks.Run(directory); } catch(Exception error) { failures.Add("seek readiness: "+error);Console.WriteLine("FAIL seek readiness: "+error); }
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }

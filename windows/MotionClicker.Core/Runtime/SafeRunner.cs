@@ -24,7 +24,7 @@ public sealed class RunProgram {
     }
 }
 public enum RunnerState { Idle, Armed, Running, Paused, Stopped, Failed }
-public sealed record RunnerSnapshot(RunnerState State, string Reason, long Dispatched, long MaxLagUs);
+public sealed record RunnerSnapshot(RunnerState State, string Reason, long Dispatched, long MaxLagUs,MouseButton? OwnedButton=null);
 /// <summary>One serialized gate covers input dispatch, cancellation and conservative hold ownership.</summary>
 public sealed class SafeRunner(IMonotonicClock clock, IMonitorProvider monitors, IInputBackend backend) {
     private readonly object gate=new();
@@ -37,7 +37,7 @@ public sealed class SafeRunner(IMonotonicClock clock, IMonitorProvider monitors,
     private Dictionary<string,string> mapping=[];
     private ulong initialInterference;
     private (MouseButton Button, Point Point)? owned;
-    public RunnerSnapshot Snapshot { get { lock(gate) return new(state,reason,dispatched,maxLag); } }
+    public RunnerSnapshot Snapshot { get { lock(gate) return new(state,reason,dispatched,maxLag,owned?.Button); } }
     public void Start(RunProgram value,IReadOnlyDictionary<string,string> map,long delayUs=0,bool hotkeyReady=false) {
         lock(gate) {
             if(owned!=null || state is RunnerState.Running or RunnerState.Armed) throw new InvalidOperationException("Stop and resolve owned release before restart");
