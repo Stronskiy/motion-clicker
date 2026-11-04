@@ -5,8 +5,11 @@ using Windows.Storage.Streams;
 // Capability experiment only. Generated pixels; no native capture/hook entry point.
 static class MfEncoder
 {
+    [DllImport("ole32.dll")] private static extern int CoInitializeEx(nint reserved,uint mode);
+    [DllImport("ole32.dll")] private static extern void CoUninitialize();
     public static void Encode(string path,IBuffer pixels,long[] timestamps,long[] durations)
     {
+        Marshal.ThrowExceptionForHR(CoInitializeEx(0,0));
         MediaFactory.MFStartup().CheckError();
         try
         {
@@ -23,27 +26,27 @@ static class MfEncoder
             int stream=writer.AddStream(encoded);
             using var input=MediaFactory.MFCreateMediaType();
             SetVideo(input,VideoFormatGuids.Rgb32);
-            writer.SetInputMediaType(stream,input,null).CheckError();
-            writer.BeginWriting().CheckError();
+            writer.SetInputMediaType(stream,input,null);
+            writer.BeginWriting();
             byte[] bytes=new byte[pixels.Length];
             using(var reader=DataReader.FromBuffer(pixels))reader.ReadBytes(bytes);
             for(int i=0;i<timestamps.Length;i++)
             {
                 using var buffer=MediaFactory.MFCreateMemoryBuffer(bytes.Length);
-                buffer.Lock(out var pointer,out _,out _).CheckError();
+                buffer.Lock(out var pointer,out _,out _);
                 try { Marshal.Copy(bytes,0,pointer,bytes.Length); }
-                finally { buffer.Unlock().CheckError(); }
+                finally { buffer.Unlock(); }
                 buffer.CurrentLength=bytes.Length;
                 using var sample=MediaFactory.MFCreateSample();
-                sample.AddBuffer(buffer).CheckError();
+                sample.AddBuffer(buffer);
                 sample.SampleTime=timestamps[i]-timestamps[0];
                 sample.SampleDuration=durations[i];
-                writer.WriteSample(stream,sample).CheckError();
+                writer.WriteSample(stream,sample);
             }
-            writer.Finalize().CheckError();
+            writer.Finalize();
             Console.WriteLine($"MF ENCODE generated inputs={timestamps.Length}");
         }
-        finally { MediaFactory.MFShutdown().CheckError(); }
+        finally { MediaFactory.MFShutdown().CheckError();CoUninitialize(); }
     }
 
     private static void SetVideo(IMFMediaType type,Guid subtype)
