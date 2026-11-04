@@ -66,7 +66,7 @@ static class Probe
                 var path=Path.Combine(directory,$"{test.Name}.mp4");
                 try {
                     Console.WriteLine($"CASE {test.Name}; inputPTS100ns=[{string.Join(',',test.Pts)}]; inputDuration100ns=[{string.Join(',',test.Durations)}]");
-                    await Encode(path,pixels,test.Pts,test.Durations).WaitAsync(TimeSpan.FromSeconds(45));
+                    await Task.Run(()=>MfEncoder.Encode(path,pixels,test.Pts,test.Durations)).WaitAsync(TimeSpan.FromSeconds(45));
                     Read(path,test.Pts,test.Durations);
                 } catch(Exception error) { failures.Add(test.Name+": "+error);Console.WriteLine($"FAIL {test.Name}: {error.Message}"); }
             }
