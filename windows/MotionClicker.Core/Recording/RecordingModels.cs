@@ -14,7 +14,7 @@ public sealed record RecordingTarget(MonitorSlot Slot, RuntimeDisplay Display);
 
 public sealed record ClockAnchor(long SourceAnchorTicks, long HostAnchorUs, long TicksPerSecond);
 
-public sealed record CapturedPointerEvent(long HostTimeUs, Point NativePosition, ActionKind Kind, MouseButton? Button = null, double? DeltaX = null, double? DeltaY = null, [property: JsonRequired] bool IsOwnInjected = false, [property: JsonRequired] bool IsControl = false);
+public sealed record CapturedPointerEvent(long HostTimeUs, Point NativePosition, ActionKind Kind, MouseButton? Button = null, double? DeltaX = null, double? DeltaY = null, [property: JsonRequired] bool IsOwnInjected = false, [property: JsonRequired] bool IsControl = false, PointerTiming? Timing = null);
 
 public sealed record RawPointerRecord(int Sequence, CapturedPointerEvent Event, long TimeUs, RecordedAction? Action = null, string? AtomicGroupId = null);
 
@@ -22,7 +22,7 @@ public sealed record RecordingGap(long StartUs, long EndUs, GapKind Kind, string
 
 public sealed record StreamManifest(string MonitorSlotId, string RelativePath, ClockAnchor Clock, long? MediaTimeZeroUs, long EncodedDurationUs, long FrameCount, RecordingGap[] Gaps, WriterStatus WriterStatus, long GapCount, string GapJournalPath, string? FailureReason = null);
 
-public sealed record RecordingManifest(int ManifestVersion, string TakeId, RecordingState State, long EpochHostUs, long DurationUs, MonitorSlot[] Targets, StreamManifest[] Streams, long RawEventCount, string[] IncompleteGroupIds, string[] Warnings, string? Reason = null);
+public sealed record RecordingManifest(int ManifestVersion, string TakeId, RecordingState State, long EpochHostUs, long DurationUs, MonitorSlot[] Targets, StreamManifest[] Streams, long RawEventCount, string[] IncompleteGroupIds, string[] Warnings, string? Reason = null, PointerTimingBasis? PointerTimingBasis = null);
 
 public sealed record RecordingResult(RecordingManifest Manifest, Take Take, RecordedAction[] Events);
 
@@ -37,6 +37,11 @@ public static class RecordingJson
     {
         var options = new JsonSerializerOptions(ProjectJson.Options);
         options.Converters.Add(new StreamManifestJsonConverter());
+        options.Converters.Add(new PointerTimingJsonConverter());
+        options.Converters.Add(new ExactEnumConverter<PointerTimingBasis>());
+        options.Converters.Add(new ExactEnumConverter<PointerHostClock>());
+        options.Converters.Add(new ExactEnumConverter<PointerPacketClock>());
+        options.Converters.Add(new ExactEnumConverter<PointerPacketUnits>());
         options.Converters.Add(new ExactEnumConverter<RecordingState>());
         options.Converters.Add(new ExactEnumConverter<GapKind>());
         options.Converters.Add(new ExactEnumConverter<WriterStatus>());

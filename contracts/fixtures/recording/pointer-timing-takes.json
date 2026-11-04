@@ -1,0 +1,328 @@
+[
+  {
+    "name": "legacy",
+    "manifest": {
+      "manifestVersion": 1,
+      "takeId": "take",
+      "state": "completed",
+      "epochHostUs": 1000000,
+      "durationUs": 1000000,
+      "targets": [
+        {
+          "id": "left",
+          "name": "left",
+          "geometry": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "size": {
+              "width": 64,
+              "height": 64
+            },
+            "scaleFactor": 1,
+            "rotationDegrees": 0
+          }
+        }
+      ],
+      "streams": [],
+      "rawEventCount": 1,
+      "incompleteGroupIds": [],
+      "warnings": []
+    },
+    "records": [
+      {
+        "sequence": 0,
+        "event": {
+          "hostTimeUs": 1000010,
+          "nativePosition": {
+            "x": 1,
+            "y": 1
+          },
+          "kind": "move",
+          "isOwnInjected": false,
+          "isControl": false
+        },
+        "timeUs": 10,
+        "action": {
+          "id": "event0",
+          "takeId": "take",
+          "monitorSlotId": "left",
+          "timeUs": 10,
+          "order": 0,
+          "kind": "move",
+          "x": 1,
+          "y": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "uint64Max",
+    "manifest": {
+      "manifestVersion": 1,
+      "takeId": "take",
+      "state": "completed",
+      "epochHostUs": 1000000,
+      "durationUs": 1000000,
+      "targets": [
+        {
+          "id": "left",
+          "name": "left",
+          "geometry": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "size": {
+              "width": 64,
+              "height": 64
+            },
+            "scaleFactor": 1,
+            "rotationDegrees": 0
+          }
+        }
+      ],
+      "streams": [],
+      "rawEventCount": 1,
+      "incompleteGroupIds": [],
+      "warnings": [],
+      "pointerTimingBasis": "nativeHostObservation"
+    },
+    "records": [
+      {
+        "sequence": 0,
+        "event": {
+          "hostTimeUs": 1000010,
+          "nativePosition": {
+            "x": 1,
+            "y": 1
+          },
+          "kind": "move",
+          "isOwnInjected": false,
+          "isControl": false,
+          "timing": {
+            "basis": "nativeHostObservation",
+            "hostClock": "machAbsolute",
+            "packetClock": "cgEventTimestamp",
+            "packetUnits": "nanoseconds",
+            "packetTimestamp": "18446744073709551615",
+            "ownerDelayUs": 500000
+          }
+        },
+        "timeUs": 10,
+        "action": {
+          "id": "event0",
+          "takeId": "take",
+          "monitorSlotId": "left",
+          "timeUs": 10,
+          "order": 0,
+          "kind": "move",
+          "x": 1,
+          "y": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "aboveDoublePrecision",
+    "manifest": {
+      "manifestVersion": 1,
+      "takeId": "take",
+      "state": "completed",
+      "epochHostUs": 1000000,
+      "durationUs": 1000000,
+      "targets": [
+        {
+          "id": "left",
+          "name": "left",
+          "geometry": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "size": {
+              "width": 64,
+              "height": 64
+            },
+            "scaleFactor": 1,
+            "rotationDegrees": 0
+          }
+        }
+      ],
+      "streams": [],
+      "rawEventCount": 1,
+      "incompleteGroupIds": [],
+      "warnings": [],
+      "pointerTimingBasis": "nativeHostObservation"
+    },
+    "records": [
+      {
+        "sequence": 0,
+        "event": {
+          "hostTimeUs": 1000010,
+          "nativePosition": {
+            "x": 1,
+            "y": 1
+          },
+          "kind": "move",
+          "isOwnInjected": false,
+          "isControl": false,
+          "timing": {
+            "basis": "nativeHostObservation",
+            "hostClock": "machAbsolute",
+            "packetClock": "cgEventTimestamp",
+            "packetUnits": "nanoseconds",
+            "packetTimestamp": "9007199254740993",
+            "ownerDelayUs": 500000
+          }
+        },
+        "timeUs": 10,
+        "action": {
+          "id": "event0",
+          "takeId": "take",
+          "monitorSlotId": "left",
+          "timeUs": 10,
+          "order": 0,
+          "kind": "move",
+          "x": 1,
+          "y": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "zeroDiagnostic",
+    "manifest": {
+      "manifestVersion": 1,
+      "takeId": "take",
+      "state": "completed",
+      "epochHostUs": 1000000,
+      "durationUs": 1000000,
+      "targets": [
+        {
+          "id": "left",
+          "name": "left",
+          "geometry": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "size": {
+              "width": 64,
+              "height": 64
+            },
+            "scaleFactor": 1,
+            "rotationDegrees": 0
+          }
+        }
+      ],
+      "streams": [],
+      "rawEventCount": 1,
+      "incompleteGroupIds": [],
+      "warnings": [],
+      "pointerTimingBasis": "nativeHostObservation"
+    },
+    "records": [
+      {
+        "sequence": 0,
+        "event": {
+          "hostTimeUs": 1000010,
+          "nativePosition": {
+            "x": 1,
+            "y": 1
+          },
+          "kind": "move",
+          "isOwnInjected": false,
+          "isControl": false,
+          "timing": {
+            "basis": "nativeHostObservation",
+            "hostClock": "machAbsolute",
+            "packetClock": "cgEventTimestamp",
+            "packetUnits": "nanoseconds",
+            "packetTimestamp": "0",
+            "ownerDelayUs": 500000
+          }
+        },
+        "timeUs": 10,
+        "action": {
+          "id": "event0",
+          "takeId": "take",
+          "monitorSlotId": "left",
+          "timeUs": 10,
+          "order": 0,
+          "kind": "move",
+          "x": 1,
+          "y": 1
+        }
+      }
+    ]
+  },
+  {
+    "name": "windowsUInt32",
+    "manifest": {
+      "manifestVersion": 1,
+      "takeId": "take",
+      "state": "completed",
+      "epochHostUs": 1000000,
+      "durationUs": 1000000,
+      "targets": [
+        {
+          "id": "left",
+          "name": "left",
+          "geometry": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "size": {
+              "width": 64,
+              "height": 64
+            },
+            "scaleFactor": 1,
+            "rotationDegrees": 0
+          }
+        }
+      ],
+      "streams": [],
+      "rawEventCount": 1,
+      "incompleteGroupIds": [],
+      "warnings": [],
+      "pointerTimingBasis": "nativeHostObservation"
+    },
+    "records": [
+      {
+        "sequence": 0,
+        "event": {
+          "hostTimeUs": 1000010,
+          "nativePosition": {
+            "x": 1,
+            "y": 1
+          },
+          "kind": "move",
+          "isOwnInjected": false,
+          "isControl": false,
+          "timing": {
+            "basis": "nativeHostObservation",
+            "hostClock": "queryPerformanceCounter",
+            "packetClock": "windowsLowLevelMouseTime",
+            "packetUnits": "milliseconds",
+            "packetTimestamp": "4294967295",
+            "ownerDelayUs": 500000
+          }
+        },
+        "timeUs": 10,
+        "action": {
+          "id": "event0",
+          "takeId": "take",
+          "monitorSlotId": "left",
+          "timeUs": 10,
+          "order": 0,
+          "kind": "move",
+          "x": 1,
+          "y": 1
+        }
+      }
+    ]
+  }
+]

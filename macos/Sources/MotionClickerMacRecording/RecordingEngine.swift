@@ -39,20 +39,18 @@ final class RecordingEngine {
     private var encoderFailures: [String: String] = [:]
     private var terminals = Set<String>()
     private var filter: PointerFilter
-    private let pointerClock: VerifiedPointerClock?
     private(set) var droppedFrames: Int64 = 0, acceptedFrames: Int64 = 0
     private(set) var reason: String?
     var state: RecordingState { session.state }
     var result: RecordingManifest? { session.result }
 
-    init(targets: [RecordingTarget], takeId: String, journal: EventJournal, writers: [String: any VideoWriting], options: MacRecordingOptions, pointerClock: VerifiedPointerClock? = nil) throws {
-        session = try RecordingSession(takeId: takeId, targets: targets, journal: journal)
+    init(targets: [RecordingTarget], takeId: String, journal: EventJournal, writers: [String: any VideoWriting], options: MacRecordingOptions) throws {
+        session = try RecordingSession(takeId: takeId, targets: targets, journal: journal, pointerTimingBasis: .nativeHostObservation)
         ids = targets.map(\.slot.id)
         try requireNative(Set(writers.keys) == Set(ids), "Missing selected encoder")
-        self.writers = writers; self.pointerClock = pointerClock; filter = PointerFilter(options: options, clock: pointerClock)
+        self.writers = writers; filter = PointerFilter(options: options)
     }
     func start() throws {
-        guard pointerClock != nil else { throw MacRecordingFailure.pointerClockUnverified }
         try requireNative(!requested && !stopped && state == .preparing, "Recorder is single-use")
         requested = true
     }
@@ -102,18 +100,26 @@ final class RecordingEngine {
     }
     private func encodePending(_ id: String, endingUs: Int64) throws {
         guard let frame = pending.removeValue(forKey: id), var timeline = timelines[id], let writer = writers[id] else { return }
-        let duration = max(1, try subtractNative(endingUs, frame.sourceUs))
-        guard let stamp = try timeline.propose(sourceUs: frame.sourceUs, durationUs: duration) else { return }
-        if try writer.append(frame.pixel, stamp: stamp) {
-            try session.acceptedFrame(monitorSlotId: id, sourceTicks: frame.sourceUs, encodedTimeUs: stamp.ptsUs, durationUs: stamp.durationUs)
-            try timeline.accept(stamp); timelines[id] = timeline
-            frameCounts[id] = try addNative(frameCounts[id] ?? 0, 1)
-            acceptedFrames = try addNative(acceptedFrames, 1)
-        } else {
-            try session.reportGap(monitorSlotId: id, startTicks: frame.sourceUs, endTicks: addNative(frame.sourceUs, duration), kind: .backpressure, reason: "Encoder backpressure")
-            droppedFrames = try addNative(droppedFrames, 1)
+        do {
+            let duration = max(1, try subtractNative(endingUs, frame.sourceUs))
+            guard let stamp = try timeline.propose(sourceUs: frame.sourceUs, durationUs: duration) else { return }
+            if try writer.append(frame.pixel, stamp: stamp) {
+                try session.acceptedFrame(monitorSlotId: id, sourceTicks: frame.sourceUs, encodedTimeUs: stamp.ptsUs, durationUs: stamp.durationUs)
+                try timeline.accept(stamp); timelines[id] = timeline
+                frameCounts[id] = try addNative(frameCounts[id] ?? 0, 1)
+                acceptedFrames = try addNative(acceptedFrames, 1)
+            } else {
+                try session.reportGap(monitorSlotId: id, startTicks: frame.sourceUs, endTicks: addNative(frame.sourceUs, duration), kind: .backpressure, reason: "Encoder backpressure")
+                droppedFrames = try addNative(droppedFrames, 1)
+            }
+        } catch {
+            // Every flush path shares this boundary; a healthy prefix finish
+            // must never erase a rejected append or failed journal commit.
+            encoderFailures[id] = String(describing: error)
+            throw error
         }
     }
+
     private func drain(nowUs: Int64) {
         for id in ids {
             do {
@@ -128,10 +134,10 @@ final class RecordingEngine {
         try requireNative(ids.contains(id), "Unknown admission source")
         // A dropped changed image ends knowledge of the preceding pixels now,
         // regardless of the requested frame rate or subsequent Idle callbacks.
-        try encodePending(id, endingUs: sourceUs)
         try closeAdmissionLoss(id, endUs: sourceUs)
         admissionLosses[id] = AdmissionLoss(startUs: sourceUs, reason: reason)
         droppedFrames = try addNative(droppedFrames, 1)
+        try encodePending(id, endingUs: sourceUs)
     }
     private func closeAdmissionLoss(_ id: String, endUs: Int64) throws {
         guard let loss = admissionLosses[id] else { return }
@@ -144,8 +150,7 @@ final class RecordingEngine {
     func pointer(_ sample: MacPointerSample, nowUs: Int64, generation: UInt64) throws {
         guard generation == self.generation && state == .recording && !stopped else { return }
         do {
-            guard let pointerClock else { throw MacRecordingFailure.pointerClockUnverified }
-            if let epochHostUs, sample.timestampNs > 0, try pointerClock.hostUs(timestampNs: sample.timestampNs) < epochHostUs { return }
+            if let epochHostUs, sample.observationHostUs < epochHostUs { return }
             if let event = try filter.receive(sample, nowUs: nowUs) { try session.receive(event: event) }
         } catch {
             try fail(ids[0], nowUs: nowUs, reason: String(describing: error))

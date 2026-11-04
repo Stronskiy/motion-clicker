@@ -1,0 +1,99 @@
+[
+  {
+    "name": "legacy",
+    "event": {
+      "hostTimeUs": 1000010,
+      "nativePosition": {
+        "x": 1,
+        "y": 1
+      },
+      "kind": "move",
+      "isOwnInjected": false,
+      "isControl": false
+    }
+  },
+  {
+    "name": "uint64Max",
+    "event": {
+      "hostTimeUs": 1000010,
+      "nativePosition": {
+        "x": 1,
+        "y": 1
+      },
+      "kind": "move",
+      "isOwnInjected": false,
+      "isControl": false,
+      "timing": {
+        "basis": "nativeHostObservation",
+        "hostClock": "machAbsolute",
+        "packetClock": "cgEventTimestamp",
+        "packetUnits": "nanoseconds",
+        "packetTimestamp": "18446744073709551615",
+        "ownerDelayUs": 500000
+      }
+    }
+  },
+  {
+    "name": "aboveDoublePrecision",
+    "event": {
+      "hostTimeUs": 1000010,
+      "nativePosition": {
+        "x": 1,
+        "y": 1
+      },
+      "kind": "move",
+      "isOwnInjected": false,
+      "isControl": false,
+      "timing": {
+        "basis": "nativeHostObservation",
+        "hostClock": "machAbsolute",
+        "packetClock": "cgEventTimestamp",
+        "packetUnits": "nanoseconds",
+        "packetTimestamp": "9007199254740993",
+        "ownerDelayUs": 500000
+      }
+    }
+  },
+  {
+    "name": "zeroDiagnostic",
+    "event": {
+      "hostTimeUs": 1000010,
+      "nativePosition": {
+        "x": 1,
+        "y": 1
+      },
+      "kind": "move",
+      "isOwnInjected": false,
+      "isControl": false,
+      "timing": {
+        "basis": "nativeHostObservation",
+        "hostClock": "machAbsolute",
+        "packetClock": "cgEventTimestamp",
+        "packetUnits": "nanoseconds",
+        "packetTimestamp": "0",
+        "ownerDelayUs": 500000
+      }
+    }
+  },
+  {
+    "name": "windowsUInt32",
+    "event": {
+      "hostTimeUs": 1000010,
+      "nativePosition": {
+        "x": 1,
+        "y": 1
+      },
+      "kind": "move",
+      "isOwnInjected": false,
+      "isControl": false,
+      "timing": {
+        "basis": "nativeHostObservation",
+        "hostClock": "queryPerformanceCounter",
+        "packetClock": "windowsLowLevelMouseTime",
+        "packetUnits": "milliseconds",
+        "packetTimestamp": "4294967295",
+        "ownerDelayUs": 500000
+      }
+    }
+  }
+]

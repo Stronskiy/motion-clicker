@@ -10,6 +10,8 @@ internal static class RecordingJournalValidation
 {
     internal static RecordingValidationStatistics Validate(RecordingManifest m,string scratchRoot,Action<Action<RawPointerRecord>> read)
     {
+        Require(m.PointerTimingBasis is null || Enum.IsDefined(m.PointerTimingBasis.Value),"Invalid timing basis");
+        var timing=new PointerTimingValidation();
         var take=new Take(m.TakeId,m.DurationUs,m.Targets.Select(t=>t.Id).ToArray(),m.Streams.Where(s=>s.WriterStatus==WriterStatus.Succeeded).Select(s=>new TakeMedia(s.MonitorSlotId,s.RelativePath)).ToArray());
         // This validates only the monitor/take snapshot, never recorded events.
         RunPlanCompiler.Compile(new(1,"validation-"+Guid.NewGuid(),0,m.Targets,[take],[],[],[]));
@@ -19,6 +21,7 @@ internal static class RecordingJournalValidation
         using var ids=new RecordingIdentityIndex(scratchRoot);ids.Add("entity:"+m.TakeId);foreach(var slot in m.Targets)ids.Add("entity:"+slot.Id);
         long actual=0,lastTime=-1;string? held=null;MouseButton? button=null;var crossed=false;
         read(r=>{
+            timing.Accept(r.Event,m.PointerTimingBasis);
             Require(!crossed&&r.Sequence==actual&&r.TimeUs>=0&&r.TimeUs>=lastTime&&r.TimeUs<m.DurationUs,"Invalid raw journal ordering/range");
             Require(!r.Event.IsOwnInjected&&!r.Event.IsControl&&double.IsFinite(r.Event.NativePosition.X)&&double.IsFinite(r.Event.NativePosition.Y)&&checked(r.Event.HostTimeUs-m.EpochHostUs)==r.TimeUs,"Invalid raw capture timestamp/origin");
             lastTime=r.TimeUs;actual=checked(actual+1);

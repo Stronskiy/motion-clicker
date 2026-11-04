@@ -1,0 +1,446 @@
+[
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "unknown",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": 0,
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "unknown",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "unknown",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "seconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "milliseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551616",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "01",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "-1",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "+1",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "1e3",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": " 1",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "\u0661",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": 1,
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": null,
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": -1
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": "1"
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": null
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetTimestamp": "18446744073709551615",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "ownerDelayUs": 500000
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "18446744073709551615"
+    }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "queryPerformanceCounter",
+      "packetClock": "windowsLowLevelMouseTime",
+      "packetUnits": "milliseconds",
+      "packetTimestamp": "4294967296",
+      "ownerDelayUs": 500000
+    }
+  }
+]

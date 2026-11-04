@@ -223,9 +223,10 @@ private final class PointerCapture: @unchecked Sendable {
         let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
         let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask, callback: { _, type, event, context in
+            let observationTicks = mach_absolute_time() // FIRST entry operation, before classification or owner wait.
             guard let context else { return Unmanaged.passUnretained(event) }
             let owner = Unmanaged<PointerCapture>.fromOpaque(context).takeUnretainedValue()
-            owner.receive(type: type, event: event)
+            owner.receive(type: type, event: event, observationTicks: observationTicks)
             return Unmanaged.passUnretained(event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { sink.failure(nil, generation: generation, reason: "Cannot create listen-only pointer event tap"); return }
         defer { CFMachPortInvalidate(tap) }
@@ -242,7 +243,7 @@ private final class PointerCapture: @unchecked Sendable {
         // also cover CFRunLoopStop's race with entry, without waiting on main.
         while !lock.withLock({ stopped }) { CFRunLoopRunInMode(.defaultMode, 0.1, false) }
     }
-    private func receive(type: CGEventType, event: CGEvent) {
+    private func receive(type: CGEventType, event: CGEvent, observationTicks: UInt64) {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             sink.failure(nil, generation: generation, reason: "Pointer tap disabled; continuity lost"); stop(); return
         }
@@ -250,7 +251,7 @@ private final class PointerCapture: @unchecked Sendable {
         if tag == ownTag { return }
         do {
             let point = event.location
-            if let sample = try MacPointerSample.decode(type: type, timestampNs: event.timestamp, x: point.x, y: point.y,
+            if let sample = try MacPointerSample.decode(type: type, observationHostUs: NativeTime.hostUs(observationTicks), timestampNs: event.timestamp, x: point.x, y: point.y,
                 buttonNumber: event.getIntegerValueField(.mouseEventButtonNumber),
                 scrollX: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2), scrollY: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1), sourceTag: tag) {
                 sink.pointer(sample, generation: generation)

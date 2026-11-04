@@ -93,7 +93,7 @@ import MotionClickerRecording
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
         defer { if FileManager.default.fileExists(atPath: url.path) { try? FileManager.default.removeItem(at: url) } }
         let a = try NativeVideoWriter(url: url, width: 64, height: 64), b = EngineWriter(), journal = EngineJournal()
-        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }), pointerClock: syntheticPointerClock)
+        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }))
         try e.start(); try e.sourceReady("a", generation: 1, nowUs: 1_000_000); try e.sourceReady("b", generation: 1, nowUs: 1_000_000); try e.tapReady(generation: 1, nowUs: 1_000_000)
         var pixel: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
@@ -108,6 +108,36 @@ import MotionClickerRecording
         let bTerminal = await withCheckedContinuation { c in b.finish { c.resume(returning: $0) } }
         XCTAssertNil(aTerminal.error) // Healthy prefix closure cannot erase rejected continuation.
         try e.writerFinished("a", terminal: aTerminal); try e.writerFinished("b", terminal: bTerminal)
+        XCTAssertEqual(e.result?.state, .interrupted)
+        XCTAssertEqual(e.result?.streams.first?.writerStatus, .failed)
+        XCTAssertEqual(e.result?.streams.first?.encodedDurationUs, 100_000)
+        XCTAssertTrue(e.result?.streams.first?.failureReason?.contains("videoDiscontinuityUnsupported") == true)
+        XCTAssertEqual(journal.gaps.first?.gap, RecordingGap(startUs: 100_000, endUs: 4_000_000, kind: .backpressure, reason: "admission"))
+        XCTAssertEqual(try e.project().take.media.map(\.monitorSlotId), ["b"])
+    }
+    func testNativeDropLateImageDropCannotPublishSuccessfulPrefix() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { if FileManager.default.fileExists(atPath: url.path) { try? FileManager.default.removeItem(at: url) } }
+        let a = try NativeVideoWriter(url: url, width: 64, height: 64), b = EngineWriter(), journal = EngineJournal()
+        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }))
+        try e.start(); try e.sourceReady("a", generation: 1, nowUs: 1_000_000); try e.sourceReady("b", generation: 1, nowUs: 1_000_000); try e.tapReady(generation: 1, nowUs: 1_000_000)
+        var pixel: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
+        let buffer = try XCTUnwrap(pixel)
+        CVPixelBufferLockBaseAddress(buffer, []); memset(CVPixelBufferGetBaseAddress(buffer), 0, CVPixelBufferGetBytesPerRow(buffer) * 64); CVPixelBufferUnlockBaseAddress(buffer, [])
+        try e.frame("a", sourceUs: 1_000_000, status: .complete, pixel: buffer, generation: 1)
+        try e.frame("b", sourceUs: 1_000_000, status: .complete, pixel: buffer, generation: 1)
+        try e.drop("a", sourceUs: 1_100_000, generation: 1, reason: "admission")
+        try e.frame("a", sourceUs: 5_000_000, status: .complete, pixel: buffer, generation: 1)
+        do { try e.drop("a", sourceUs: 5_100_000, generation: 1, reason: "second admission") }
+        catch { try e.fail(nowUs: 5_200_000, reason: String(describing: error)) }
+        try e.stop(nowUs: 6_000_000)
+        let aTerminal = await withCheckedContinuation { c in a.finish { c.resume(returning: $0) } }
+        let bTerminal = await withCheckedContinuation { c in b.finish { c.resume(returning: $0) } }
+        XCTAssertNil(aTerminal.error) // Healthy prefix closure cannot erase rejected continuation.
+        try e.writerFinished("a", terminal: aTerminal); try e.writerFinished("b", terminal: bTerminal)
+        XCTAssertEqual(e.droppedFrames, 2)
+        XCTAssertTrue(journal.gaps.contains { $0.gap.startUs == 4_100_000 && $0.gap.endUs == 4_200_000 && $0.gap.reason == "second admission" })
         XCTAssertEqual(e.result?.state, .interrupted)
         XCTAssertEqual(e.result?.streams.first?.writerStatus, .failed)
         XCTAssertEqual(e.result?.streams.first?.encodedDurationUs, 100_000)

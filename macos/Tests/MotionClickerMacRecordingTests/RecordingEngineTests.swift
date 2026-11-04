@@ -35,7 +35,7 @@ func engineTargets() -> [RecordingTarget] {
 final class RecordingEngineTests: XCTestCase {
     func fixture() throws -> (RecordingEngine, EngineJournal, EngineWriter, EngineWriter, CVPixelBuffer) {
         let journal = EngineJournal(), a = EngineWriter(), b = EngineWriter()
-        let engine = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }), pointerClock: syntheticPointerClock)
+        let engine = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }))
         var pixel: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
         return (engine, journal, a, b, try XCTUnwrap(pixel))
@@ -50,6 +50,26 @@ final class RecordingEngineTests: XCTestCase {
     func finish(_ e: RecordingEngine, a: VideoTerminal = VideoTerminal(frameCount: 1, durationUs: 1_000_000, error: nil), b: VideoTerminal = VideoTerminal(frameCount: 1, durationUs: 1_000_000, error: nil)) throws {
         try e.writerFinished("a", terminal: a)
         try e.writerFinished("b", terminal: b)
+    }
+    func testDropLateImageDropRetainsFailureAndEveryAdmissionDiagnostic() throws {
+        let (e, j, a, _, pixel) = try fixture(); try ready(e)
+        try e.frame("a", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.frame("b", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.drop("a", sourceUs: 1_100_000, generation: 1, reason: "first drop")
+        try e.frame("a", sourceUs: 5_000_000, status: .complete, pixel: pixel, generation: 1)
+        a.fails = true
+        do { try e.drop("a", sourceUs: 5_100_000, generation: 1, reason: "second drop") }
+        catch { try e.fail(nowUs: 5_200_000, reason: String(describing: error)) }
+        try e.stop(nowUs: 6_000_000)
+        try finish(e, a: VideoTerminal(frameCount: 1, durationUs: 100_000, error: nil), b: VideoTerminal(frameCount: 1, durationUs: 4_200_000, error: nil))
+        XCTAssertEqual(e.result?.state, .interrupted)
+        XCTAssertEqual(e.result?.streams.first?.writerStatus, .failed)
+        XCTAssertTrue(e.result?.streams.first?.failureReason?.contains("synthetic append failure") == true)
+        XCTAssertEqual(try e.project().take.media.map(\.monitorSlotId), ["b"])
+        XCTAssertEqual(e.droppedFrames, 2)
+        XCTAssertTrue(j.gaps.contains { $0.gap.startUs == 100_000 && $0.gap.endUs == 4_000_000 })
+        XCTAssertTrue(j.gaps.contains { $0.gap.startUs == 4_100_000 && $0.gap.endUs == 4_200_000 && $0.gap.reason == "second drop" })
+        XCTAssertTrue(j.gaps.contains { $0.gap.kind == .encoderFailure && $0.gap.startUs <= 4_200_000 && $0.gap.endUs >= 4_200_000 })
     }
     func testAdmissionDropThenIdleKeepsEntireUnknownIntervalAndTruncatesOldPixels() throws {
         let (e, j, a, _, pixel) = try fixture(); try ready(e)
@@ -77,13 +97,32 @@ final class RecordingEngineTests: XCTestCase {
             RecordingGap(startUs: 500_000, endUs: 4_000_000, kind: .backpressure, reason: "second")])
         XCTAssertEqual(e.droppedFrames, 2)
     }
+    func testObservationTimesPersistAcrossOwnerDelayPacketOriginsTiesAndStaleCallbacks() throws {
+        let (e, j, _, _, pixel) = try fixture(); try ready(e)
+        try e.frame("a", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        try e.frame("b", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
+        func sample(_ time: Int64, _ stamp: UInt64) -> MacPointerSample {
+            MacPointerSample(observationHostUs: time, timestampNs: stamp, position: Point(x: 20, y: 20), kind: .move, button: nil, deltaX: nil, deltaY: nil, sourceTag: 0)
+        }
+        try e.pointer(sample(999_999, .max), nowUs: 5_000_000, generation: 1)
+        try e.pointer(sample(1_000_010, .max), nowUs: 5_000_000, generation: 1)
+        try e.pointer(sample(1_000_010, 0), nowUs: 5_500_000, generation: 1)
+        try e.stop(nowUs: 6_000_000)
+        try e.pointer(sample(1_000_020, 5), nowUs: 6_000_000, generation: 1)
+        try finish(e, a: VideoTerminal(frameCount: 1, durationUs: 5_000_000, error: nil), b: VideoTerminal(frameCount: 1, durationUs: 5_000_000, error: nil))
+        XCTAssertEqual(j.events.map(\.timeUs), [10, 10])
+        XCTAssertEqual(j.events.map(\.sequence), [0, 1])
+        XCTAssertEqual(j.events.map { $0.event.timing?.packetTimestamp }, ["18446744073709551615", "0"])
+        XCTAssertEqual(e.result?.pointerTimingBasis, .nativeHostObservation)
+        XCTAssertEqual(try e.project().events.map(\.timeUs), [10, 10])
+    }
     func testPreEpochPointerCannotPoisonControlGestureClassification() throws {
         let journal = EngineJournal(), a = EngineWriter(), b = EngineWriter()
-        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 10 }), pointerClock: syntheticPointerClock)
+        let e = try RecordingEngine(targets: engineTargets(), takeId: "take", journal: journal, writers: ["a": a, "b": b], options: MacRecordingOptions(ownInjectedTag: 42, isControl: { $0.position.x < 10 }))
         try ready(e)
-        try e.pointer(MacPointerSample(timestampNs: 999_999_000, position: Point(x: 20, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
-        try e.pointer(MacPointerSample(timestampNs: 1_000_000_000, position: Point(x: 1, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
-        try e.pointer(MacPointerSample(timestampNs: 1_000_001_000, position: Point(x: 20, y: 20), kind: .buttonUp, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_002, generation: 1)
+        try e.pointer(MacPointerSample(observationHostUs: 999_999, timestampNs: 999_999_000, position: Point(x: 20, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
+        try e.pointer(MacPointerSample(observationHostUs: 1_000_000, timestampNs: 1_000_000_000, position: Point(x: 1, y: 20), kind: .buttonDown, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_000, generation: 1)
+        try e.pointer(MacPointerSample(observationHostUs: 1_000_001, timestampNs: 1_000_001_000, position: Point(x: 20, y: 20), kind: .buttonUp, button: .left, deltaX: nil, deltaY: nil, sourceTag: 0), nowUs: 1_000_002, generation: 1)
         XCTAssertTrue(journal.events.isEmpty)
         XCTAssertEqual(e.state, .recording)
     }

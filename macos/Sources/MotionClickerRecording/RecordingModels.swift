@@ -38,7 +38,8 @@ public struct CapturedPointerEvent: Codable, Sendable, Equatable {
     public let deltaY: Double?
     public let isOwnInjected: Bool
     public let isControl: Bool
-    public init(hostTimeUs: Int64, nativePosition: Point, kind: ActionKind, button: MouseButton? = nil, deltaX: Double? = nil, deltaY: Double? = nil, isOwnInjected: Bool = false, isControl: Bool = false) {
+    public let timing: PointerTiming?
+    public init(hostTimeUs: Int64, nativePosition: Point, kind: ActionKind, button: MouseButton? = nil, deltaX: Double? = nil, deltaY: Double? = nil, isOwnInjected: Bool = false, isControl: Bool = false, timing: PointerTiming? = nil) {
         self.hostTimeUs = hostTimeUs
         self.nativePosition = nativePosition
         self.kind = kind
@@ -47,6 +48,7 @@ public struct CapturedPointerEvent: Codable, Sendable, Equatable {
         self.deltaY = deltaY
         self.isOwnInjected = isOwnInjected
         self.isControl = isControl
+        self.timing = timing
     }
 }
 
@@ -117,7 +119,8 @@ public struct RecordingManifest: Codable, Sendable, Equatable {
     public let incompleteGroupIds: [String]
     public let warnings: [String]
     public let reason: String?
-    public init(manifestVersion: Int32, takeId: String, state: RecordingState, epochHostUs: Int64, durationUs: Int64, targets: [MonitorSlot], streams: [StreamManifest], rawEventCount: Int64, incompleteGroupIds: [String], warnings: [String], reason: String? = nil) {
+    public let pointerTimingBasis: PointerTimingBasis?
+    public init(manifestVersion: Int32, takeId: String, state: RecordingState, epochHostUs: Int64, durationUs: Int64, targets: [MonitorSlot], streams: [StreamManifest], rawEventCount: Int64, incompleteGroupIds: [String], warnings: [String], reason: String? = nil, pointerTimingBasis: PointerTimingBasis? = nil) {
         self.manifestVersion = manifestVersion
         self.takeId = takeId
         self.state = state
@@ -129,6 +132,7 @@ public struct RecordingManifest: Codable, Sendable, Equatable {
         self.incompleteGroupIds = incompleteGroupIds
         self.warnings = warnings
         self.reason = reason
+        self.pointerTimingBasis = pointerTimingBasis
     }
 }
 

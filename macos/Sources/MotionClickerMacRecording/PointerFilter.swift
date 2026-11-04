@@ -8,13 +8,14 @@ public struct MacRecordingOptions: Sendable {
     public init(ownInjectedTag: Int64, isControl: @escaping @Sendable (MacPointerSample) -> Bool) { self.ownInjectedTag = ownInjectedTag; self.isControl = isControl }
 }
 public struct MacPointerSample: Sendable {
+    public let observationHostUs: Int64
     public let timestampNs: UInt64
     public let position: Point
     public let kind: ActionKind
     public let button: MouseButton?
     public let deltaX: Double?, deltaY: Double?
     public let sourceTag: Int64
-    static func decode(type: CGEventType, timestampNs: UInt64, x: Double, y: Double, buttonNumber: Int64, scrollX: Double, scrollY: Double, sourceTag: Int64) throws -> MacPointerSample? {
+    static func decode(type: CGEventType, observationHostUs: Int64, timestampNs: UInt64, x: Double, y: Double, buttonNumber: Int64, scrollX: Double, scrollY: Double, sourceTag: Int64) throws -> MacPointerSample? {
         let kind: ActionKind, button: MouseButton?
         switch type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
@@ -31,16 +32,15 @@ public struct MacPointerSample: Sendable {
         try requireNative(x.isFinite && y.isFinite && scrollX.isFinite && scrollY.isFinite, "Invalid pointer coordinates")
         // CG point deltas are pixels; the project's scroll axes are opposite CG's
         // wheel axes (the existing MacInput backend negates them on dispatch).
-        return MacPointerSample(timestampNs: timestampNs, position: Point(x: x, y: y), kind: kind, button: button,
+        return MacPointerSample(observationHostUs: observationHostUs, timestampNs: timestampNs, position: Point(x: x, y: y), kind: kind, button: button,
                                 deltaX: kind == .scroll ? -scrollX : nil, deltaY: kind == .scroll ? -scrollY : nil, sourceTag: sourceTag)
     }
 }
 struct PointerFilter {
     let options: MacRecordingOptions
-    private let clock: VerifiedPointerClock?
     private var controlButton: MouseButton?
     private var recordedButton: MouseButton?
-    init(options: MacRecordingOptions, clock: VerifiedPointerClock? = nil) { self.options = options; self.clock = clock }
+    init(options: MacRecordingOptions) { self.options = options }
     mutating func receive(_ sample: MacPointerSample, nowUs: Int64) throws -> CapturedPointerEvent? {
         if sample.sourceTag == options.ownInjectedTag { return nil }
         if let controlButton {
@@ -55,11 +55,16 @@ struct PointerFilter {
             if sample.kind == .buttonDown { controlButton = sample.button }
             return nil
         }
-        let time = try NativeTime.pointerUs(timestampNs: sample.timestampNs, nowUs: nowUs, clock: clock)
+        let time = sample.observationHostUs
+        try requireNative(time >= 0, "Invalid observation host time")
+        let timing = try PointerTiming(basis: .nativeHostObservation, hostClock: .machAbsolute,
+                                       packetClock: .cgEventTimestamp, packetUnits: .nanoseconds,
+                                       packetTimestamp: String(sample.timestampNs),
+                                       ownerDelayUs: subtractNative(nowUs, time))
         // Core remains the authority for repeated/mismatched physical ownership.
         if sample.kind == .buttonDown { recordedButton = sample.button }
         if sample.kind == .buttonUp { recordedButton = nil }
         return CapturedPointerEvent(hostTimeUs: time, nativePosition: sample.position, kind: sample.kind,
-                                    button: sample.button, deltaX: sample.deltaX, deltaY: sample.deltaY)
+                                    button: sample.button, deltaX: sample.deltaX, deltaY: sample.deltaY, timing: timing)
     }
 }

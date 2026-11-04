@@ -31,16 +31,23 @@ final class FakeCaptureDriver: CaptureDriving, @unchecked Sendable {
         sink?.frame("a", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
         sink?.frame("b", sourceUs: 1_000_000, status: .complete, pixel: pixel, generation: 1)
     }
+    func pointer(_ sample: MacPointerSample) { lock.withLock { sink }?.pointer(sample, generation: 1) }
     func fail() { lock.withLock { sink }?.failure("a", generation: 1, reason: "Synthetic source loss") }
 }
+final class ObservationTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int64 = 1_000_000
+    func now() -> Int64 { lock.withLock { value } }
+    func set(_ value: Int64) { lock.withLock { self.value = value } }
+}
 @MainActor final class ControllerTests: XCTestCase {
-    func setup(timeout: Double = 0.1, permissionError: Bool = false, acknowledgeStop: Bool = true, realEncoder: Bool = false, hangingEncoder: Bool = false, verifiedPointerClock: Bool = true) throws -> (MacRecordingController, FakeCaptureDriver, URL) {
+    func setup(timeout: Double = 0.1, permissionError: Bool = false, acknowledgeStop: Bool = true, realEncoder: Bool = false, hangingEncoder: Bool = false, now: @escaping @Sendable () -> Int64 = { 1_000_000 }, classify: @escaping @Sendable (MacPointerSample) -> Bool = { _ in false }) throws -> (MacRecordingController, FakeCaptureDriver, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
         let driver = FakeCaptureDriver(acknowledgeStop: acknowledgeStop)
         let inventory = engineTargets().map { NativeDisplaySnapshot(id: UInt32($0.display.id)!, geometry: $0.display.geometry, bounds: $0.display.nativeBounds, pixelWidth: 64, pixelHeight: 64) }
-        let dependencies = RecordingDependencies(inventory: { inventory }, preflight: { if permissionError { throw MacRecordingFailure.screenRecordingPermissionMissing } }, now: { 1_000_000 }, writer: { url, w, h in if realEncoder { return try NativeVideoWriter(url: url, width: w, height: h) }; return EngineWriter(url: url, hanging: hangingEncoder) }, driver: { _, _, sink, _, _ in driver.connect(sink); return driver }, timeoutSeconds: timeout, pointerClock: verifiedPointerClock ? syntheticPointerClock : nil)
-        return (MacRecordingController(options: MacRecordingOptions(ownInjectedTag: 42, isControl: { _ in false }), dependencies: dependencies), driver, dir)
+        let dependencies = RecordingDependencies(inventory: { inventory }, preflight: { if permissionError { throw MacRecordingFailure.screenRecordingPermissionMissing } }, now: now, writer: { url, w, h in if realEncoder { return try NativeVideoWriter(url: url, width: w, height: h) }; return EngineWriter(url: url, hanging: hangingEncoder) }, driver: { _, _, sink, _, _ in driver.connect(sink); return driver }, timeoutSeconds: timeout)
+        return (MacRecordingController(options: MacRecordingOptions(ownInjectedTag: 42, isControl: classify), dependencies: dependencies), driver, dir)
     }
     func waitStarted(_ driver: FakeCaptureDriver) async throws {
         for _ in 0..<200 {
@@ -48,13 +55,47 @@ final class FakeCaptureDriver: CaptureDriving, @unchecked Sendable {
         }
         XCTFail("Fake start was not invoked")
     }
-    func testUnverifiedClockRejectsPreparationBeforeDriverOrStorage() async throws {
-        let (c, d, dir) = try setup(verifiedPointerClock: false); defer { try? FileManager.default.removeItem(at: dir) }
-        do { _ = try await c.prepare(targets: engineTargets(), root: dir, takeId: "take"); XCTFail("Unverified pointer source admitted") }
-        catch { XCTAssertEqual(error as? MacRecordingFailure, .pointerClockUnverified) }
+    // Explicit 2026-11-04 contract revision: observation capture needs no packet
+    // mapping provider. Unsafe source conversion is still tested by NativeTimingTests.
+    func testObservationPreparationNeedsNoPacketClockAndDoesNotStartCapture() async throws {
+        let (c, d, dir) = try setup(); defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try await c.prepare(targets: engineTargets(), root: dir, takeId: "take")
         XCTAssertFalse(d.isStarted)
-        let recovery = await c.recovery(); XCTAssertNil(recovery)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [])
+        let recovery = await c.recovery(); XCTAssertNotNil(recovery)
+        _ = try await c.stop()
+    }
+    func testHookObservationSurvivesActualOwnerContentionAndPublishedReadback() async throws {
+        let clock = ObservationTestClock(), entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let (c, d, dir) = try setup(timeout: 2, now: clock.now, classify: { sample in
+            if sample.position.x == 1 { entered.signal(); _ = release.wait(timeout: .now() + 2) }
+            return false
+        })
+        defer { release.signal(); try? FileManager.default.removeItem(at: dir) }
+        _ = try await c.prepare(targets: engineTargets(), root: dir, takeId: "take")
+        let start = Task { try await c.start() }; try await waitStarted(d); d.ready(); try await start.value
+        var pixel: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
+        d.frames(try XCTUnwrap(pixel))
+        let first = MacPointerSample(observationHostUs: 1_000_010, timestampNs: .max, position: .init(x: 1,y: 1), kind: .move, button: nil, deltaX: nil, deltaY: nil, sourceTag: 0)
+        let second = MacPointerSample(observationHostUs: 1_000_020, timestampNs: 0, position: .init(x: 2,y: 1), kind: .move, button: nil, deltaX: nil, deltaY: nil, sourceTag: 0)
+        clock.set(1_000_010)
+        let firstDone = expectation(description: "first callback"), secondDone = expectation(description: "second callback")
+        DispatchQueue.global().async { d.pointer(first); firstDone.fulfill() }
+        XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+        clock.set(1_500_020)
+        DispatchQueue.global().async { d.pointer(second); secondDone.fulfill() }
+        try await Task.sleep(for: .milliseconds(20)); release.signal()
+        await fulfillment(of: [firstDone, secondDone], timeout: 2)
+        let completion = try await c.stop()
+        let manifestURL = try XCTUnwrap(completion?.manifestURL)
+        let manifest = try JSONDecoder().decode(RecordingManifest.self, from: Data(contentsOf: manifestURL))
+        let lines = try String(contentsOf: manifestURL.deletingLastPathComponent().appendingPathComponent("events.jsonl"), encoding: .utf8).split(separator: "\n")
+        let raw = try lines.map { try JSONDecoder().decode(RawPointerRecord.self, from: Data($0.utf8)) }
+        XCTAssertEqual(manifest.pointerTimingBasis, .nativeHostObservation)
+        XCTAssertEqual(raw.map(\.timeUs), [10,20])
+        XCTAssertEqual(raw.map { $0.event.timing?.ownerDelayUs }, [0,500_000])
+        XCTAssertEqual(raw.map { $0.event.timing?.packetTimestamp }, ["18446744073709551615","0"])
+        let project = try await c.project(); XCTAssertEqual(project.events.map(\.timeUs), [10,20])
     }
     func testEarlyStaticSourceWithOnlyPreEpochImageFailsWithinInitializationDeadline() async throws {
         let (c, d, dir) = try setup(timeout: 0.02); defer { try? FileManager.default.removeItem(at: dir) }

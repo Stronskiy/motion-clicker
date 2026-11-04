@@ -5,7 +5,7 @@ import MotionClickerRecording
 public enum MacRecordingFailure: Error, Sendable, Equatable {
     case screenRecordingPermissionMissing, inputMonitoringPermissionMissing, pointerClockUnverified, videoDiscontinuityUnsupported, invalidState(String)
 }
-public enum MacPointerClockStatus: Sendable { case unverified }
+public enum MacPointerClockStatus: Sendable { case unverified, nativeHostObservation }
 public struct MacRecordingDisplay: Sendable {
     public let monitorSlotId: String, displayId: UInt32
     public let pixelWidth: Int, pixelHeight: Int
@@ -51,15 +51,14 @@ struct RecordingDependencies {
     let writer: (URL, Int, Int) throws -> any VideoWriting
     let driver: ([RecordingTarget], [NativeDisplaySnapshot], any CaptureSink, UInt64, Int64) -> any CaptureDriving
     var timeoutSeconds: Double = 10
-    var pointerClock: VerifiedPointerClock? = nil
 }
 /// Audited queue-confinement wrapper: mutable engine/store/native handles and all
 /// continuations are accessed ONLY on owner. Callbacks transfer scalar values or
 /// synchronously borrow a frame; no Sendable conformance is added to the core.
 public final class MacRecordingController: @unchecked Sendable, CaptureSink {
-    /// No production source-specific verified CGEvent→mach anchor is available
-    /// yet. This cannot be overridden by callers or permission grants.
-    public static var pointerClockStatus: MacPointerClockStatus { .unverified }
+    /// Canonical time is first-hook-entry host observation, not packet creation.
+    /// The separate original packet-to-host mapping remains unverified.
+    public static var pointerClockStatus: MacPointerClockStatus { .nativeHostObservation }
     private let owner = DispatchQueue(label: "MotionClicker.recording.owner", qos: .userInitiated)
     private let ownerKey = DispatchSpecificKey<Bool>()
     private let options: MacRecordingOptions
@@ -96,7 +95,6 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
     public func prepare(targets: [RecordingTarget], root: URL, takeId: String) async throws -> MacRecordingPreparation {
         try await perform { c in
             try requireNative(c.engine == nil && c.store == nil && !c.ended, "Recorder already prepared")
-            guard c.dependencies.pointerClock != nil else { throw MacRecordingFailure.pointerClockUnverified }
             try c.dependencies.preflight()
             let selected = try NativeDisplaySnapshot.select(targets: targets, inventory: c.dependencies.inventory())
             let store = try RecordingStore(root: root, takeId: takeId)
@@ -106,7 +104,7 @@ public final class MacRecordingController: @unchecked Sendable, CaptureSink {
                 for (target, display) in zip(targets, selected) {
                     writers[target.slot.id] = try c.dependencies.writer(store.mediaFile(monitorSlotId: target.slot.id), display.pixelWidth, display.pixelHeight)
                 }
-                c.engine = try RecordingEngine(targets: targets, takeId: takeId, journal: store, writers: writers, options: c.options, pointerClock: c.dependencies.pointerClock)
+                c.engine = try RecordingEngine(targets: targets, takeId: takeId, journal: store, writers: writers, options: c.options)
                 c.driver = c.dependencies.driver(targets, selected, CaptureRelay(c), 1, c.options.ownInjectedTag)
                 let preparation = MacRecordingPreparation(displays: zip(targets, selected).map { MacRecordingDisplay(monitorSlotId: $0.slot.id, displayId: $1.id, pixelWidth: $1.pixelWidth, pixelHeight: $1.pixelHeight) })
                 c.prepared = preparation; return preparation
