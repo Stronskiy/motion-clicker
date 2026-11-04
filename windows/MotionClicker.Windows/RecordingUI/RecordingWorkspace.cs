@@ -17,10 +17,11 @@ public interface IRecordingWorkspaceServices {
 }
 /// <summary>Native-free UI orchestration boundary; launch and construction are inert.</summary>
 public sealed class RecordingWorkspace(IRecordingWorkspaceServices services) {
+    private readonly IRecordingWorkspaceServices implementation=services;
     public WorkspacePhase Phase { get; private set; }=WorkspacePhase.Idle;
     public string? Destination { get; private set; }
     public string? Message { get; private set; }
     public bool Busy=>Phase is WorkspacePhase.Preparing or WorkspacePhase.Countdown or WorkspacePhase.Starting or WorkspacePhase.Recording or WorkspacePhase.Finalizing or WorkspacePhase.Saving or WorkspacePhase.Opening;
-    public Task RecordAsync(RecordingTarget[] targets,string destination,int countdownSeconds)=>Task.FromException(new NotImplementedException("Recording UI orchestration not implemented"));
+    public Task RecordAsync(RecordingTarget[] targets,string destination,int countdownSeconds)=>Task.FromException(implementation is not null ? new NotImplementedException("Recording UI orchestration not implemented") : new InvalidOperationException("Missing services"));
     public Task StopAsync(string? reason=null)=>Task.CompletedTask;
 }

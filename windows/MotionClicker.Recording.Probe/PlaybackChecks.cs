@@ -12,19 +12,22 @@ static class PlaybackChecks {
         using var source=MediaSource.CreateFromStorageFile(file);
         // End at107ms, seek to100ms. A10Hz UI poll would miss this entire7ms interval.
         var item=new MediaPlaybackItem(source,TimeSpan.Zero,TimeSpan.FromTicks(1_070_000));
-        using var player=new MediaPlayer { AutoPlay=false,IsMuted=true,IsLoopingEnabled=false };
+        using var player=new MediaPlayer { AutoPlay=false,IsMuted=true,IsLoopingEnabled=false,IsVideoFrameServerEnabled=true };
         player.CommandManager.IsEnabled=false;
         var opened=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var ended=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         player.MediaOpened+=(_,_)=>opened.TrySetResult();
         player.MediaEnded+=(_,_)=>ended.TrySetResult();
         player.MediaFailed+=(_,args)=>{var error=new Exception(args.Error+": "+args.ErrorMessage);opened.TrySetException(error);ended.TrySetException(error);};
+        int frames=0;player.VideoFrameAvailable+=(_,_)=>Interlocked.Increment(ref frames);
+        player.PlaybackSession.PlaybackStateChanged+=(_,_)=>Console.WriteLine($"PLAYER state={player.PlaybackSession.PlaybackState}; positionTicks={player.PlaybackSession.Position.Ticks}");
         player.Source=item;
         await opened.Task.WaitAsync(TimeSpan.FromSeconds(20));
         Console.WriteLine($"PLAYER opened width={player.PlaybackSession.NaturalVideoWidth}; height={player.PlaybackSession.NaturalVideoHeight}; durationTicks={player.PlaybackSession.NaturalDuration.Ticks}");
         if(player.PlaybackSession.NaturalVideoWidth!=64||player.PlaybackSession.NaturalVideoHeight!=64)throw new Exception("Native player video not ready");
         player.PlaybackSession.Position=TimeSpan.FromTicks(1_000_000);player.Play();
         await ended.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        if(frames==0)throw new Exception("No native player decoded frame notification");
         var position=player.PlaybackSession.Position.Ticks;
         Console.WriteLine($"PLAYER native endpoint positionTicks={position}; durationLimitTicks={item.DurationLimit?.Ticks}");
         if(Math.Abs(position-1_070_000)>10_000)throw new Exception("Native player did not stop at the7ms interval endpoint");
