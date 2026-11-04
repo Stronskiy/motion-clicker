@@ -3,6 +3,7 @@ using MotionClicker.Core.Recording;
 namespace MotionClicker.Windows.Recording;
 
 internal sealed record NativeWriterResult(bool Succeeded,long FrameCount,long EncodedDurationTicks,string? Failure,bool ClosureConfirmed=true);
+internal sealed class NativeEncoderClosureException(string message) : Exception(message);
 
 public sealed record WindowsRecordingDisplay(string MonitorSlotId,string DisplayId,int PixelWidth,int PixelHeight);
 public sealed record WindowsRecordingPreparation(WindowsRecordingDisplay[] Displays);

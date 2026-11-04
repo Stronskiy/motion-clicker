@@ -12,9 +12,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         internal WindowsEncoderWorker Encoder=null!;
         internal IWindowsRecordingSource? Source;
         internal WindowsStreamTimeline? Timeline;
-        internal WindowsVideoFrame? Image;
-        internal long LossTicks=long.MaxValue;
-        internal string? LossReason;
+        internal readonly WindowsImageMailbox Mailbox=new();
         internal string? SourceFailure;
         internal bool Terminal;
         internal int StopSignaled;
@@ -29,10 +27,11 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private readonly TaskCompletionSource<WindowsRecordingCompletion?> stopped=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource safetyStop=new();
     private readonly object commandGate=new();
-    private sealed record StopBoundary(long HostUs,long WallTicks);
+    private sealed record StopBoundary(long HostUs,long WallTicks,bool ClockValid);
     private StopBoundary? stopBoundary;
     private Stream[] streams=[];
     private RecordingStore? store;
+    private StoreRecovery? recovery;
     private RecordingSession? session;
     private IWindowsPointerSource? pointer;
     private TaskCompletionSource<WindowsRecordingPreparation>? preparation;
@@ -41,8 +40,8 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private string? failure;
     private long epoch=-1,beginUs,stopUs,stopWallTicks;
     private long accepted,dropped;
-    private int startRequested,stopRequested,pointerStopSignaled,disposeRequested,ingress,producersDrained;
-    private bool prepared,timelinesStopped,encodersStopping,quarantined,exiting;
+    private int startRequested,stopRequested,pointerStopSignaled,disposeRequested,ingress,producersDrained,quarantined,publishing;
+    private bool prepared,timelinesStopped,encodersStopping,exiting;
     private WindowsRecordingCompletion? completion;
 
     internal WindowsRecordingController(WindowsRecordingOptions options,IWindowsRecordingPlatform platform)
@@ -74,7 +73,8 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
                 cancellation.ThrowIfCancellationRequested();
                 var displays=platform.Validate(frozen);
                 if(displays.Length!=frozen.Length)throw new RecordingException("Incomplete frozen monitor mapping");
-                store=new(root,takeId);session=new(takeId,frozen,store,PointerTimingBasis.NativeHostObservation);
+                store=new(root,takeId);Volatile.Write(ref recovery,store.Recovery);
+                session=new(takeId,frozen,store,PointerTimingBasis.NativeHostObservation);
                 streams=frozen.Select(t=>new Stream(t,displays.Single(d=>d.MonitorSlotId==t.Slot.Id))).ToArray();
                 foreach(var stream in streams)
                 {
@@ -114,24 +114,21 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     public Task<WindowsRecordingCompletion?> StopAsync(string? reason=null){RequestStop(reason);return stopped.Task;}
     public Task<WindowsRecordingProgress> SnapshotAsync()=>Command(()=>new WindowsRecordingProgress(
         session?.State??RecordingState.Preparing,accepted,Interlocked.Read(ref dropped),Volatile.Read(ref failure)));
-    public Task<StoreRecovery?> RecoveryAsync()=>Command(()=>store?.Recovery);
+    public Task<StoreRecovery?> RecoveryAsync()=>Task.FromResult(Volatile.Read(ref recovery));
     public Task<RecordingResult> ProjectAsync()=>Command(()=>
     {
         if(completion is null)throw new RecordingException("Recording has no published completion");return session!.Project();
     });
     private void Image(Stream stream,WindowsVideoFrame frame)
     {
-        if(!AcceptIngress(frame.SourceTicks/10))return;
-        if(Interlocked.CompareExchange(ref stream.Image,frame,null) is not null)Drop(stream,frame.SourceTicks,"Capture image mailbox full");
+        if(!AcceptVideo(frame.SourceTicks))return;
+        if(!stream.Mailbox.Image(frame))Interlocked.Increment(ref dropped);
         wake.Set();
     }
     private void Drop(Stream stream,long ticks,string reason)
     {
-        if(!AcceptIngress(ticks/10))return;
-        long previous;
-        do{previous=Interlocked.Read(ref stream.LossTicks);if(ticks>=previous)break;}
-        while(Interlocked.CompareExchange(ref stream.LossTicks,ticks,previous)!=previous);
-        Interlocked.CompareExchange(ref stream.LossReason,reason,null);Interlocked.Increment(ref dropped);wake.Set();
+        if(!AcceptVideo(ticks))return;
+        stream.Mailbox.Drop(ticks,reason);Interlocked.Increment(ref dropped);wake.Set();
     }
     private void Pointer(WindowsPointerSample sample)
     {
@@ -139,6 +136,11 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         if(!pointers.TryAdd(sample))Interrupt("Pointer mailbox overflow");wake.Set();
     }
     private void Interrupt(string reason)=>RequestStop(reason);
+    private bool AcceptVideo(long sourceTicks)
+    {
+        if(!AcceptIngress(sourceTicks/10))return false;
+        var boundary=Volatile.Read(ref stopBoundary);return boundary is null||(Int128)sourceTicks<=(Int128)boundary.HostUs*10;
+    }
     private bool AcceptIngress(long hostUs)
     {
         if(Volatile.Read(ref producersDrained)!=0||stopped.Task.IsCompleted)return false;
@@ -149,7 +151,11 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         if(stopped.Task.IsCompleted)return;
         if(reason is not null)Interlocked.CompareExchange(ref failure,reason,null);
-        if(Interlocked.CompareExchange(ref stopBoundary,new(platform.NowUs,Environment.TickCount64),null) is null)
+        if(Volatile.Read(ref stopBoundary) is not null){wake.Set();return;}
+        long host=0;bool clockValid=true;
+        try{host=platform.NowUs;}
+        catch(Exception error){clockValid=false;Interlocked.CompareExchange(ref failure,"Stop QPC unavailable: "+error.Message,null);}
+        if(Interlocked.CompareExchange(ref stopBoundary,new(host,Environment.TickCount64,clockValid),null) is null)
         {
             var boundary=stopBoundary!;stopUs=boundary.HostUs;stopWallTicks=boundary.WallTicks;
             Volatile.Write(ref ingress,0);Volatile.Write(ref stopRequested,1);
@@ -171,7 +177,14 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         try
         {
-            if(Volatile.Read(ref stopRequested)!=0){RequestNativeStop();return;}
+            if(Volatile.Read(ref stopRequested)!=0)
+            {
+                RequestNativeStop();
+                if(!stopped.Task.IsCompleted&&Environment.TickCount64-Interlocked.Read(ref stopWallTicks)>=DeadlineUs/1000&&
+                    Interlocked.CompareExchange(ref publishing,2,0)==0)
+                    Quarantine("Native shutdown deadline exceeded while owner or native work was unavailable");
+                return;
+            }
             if(Volatile.Read(ref startRequested)!=0&&Volatile.Read(ref stopRequested)==0)
             {
                 if(streams.Any(s=>s.Source?.Closed.IsCompleted==true)||pointer?.Closed.IsCompleted==true)
@@ -202,7 +215,9 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         }
         finally
         {
-            safetyStop.Cancel();prepareCancellation.Dispose();startCancellation.Dispose();store?.Dispose();disposed.TrySetResult();
+            safetyStop.Cancel();prepareCancellation.Dispose();startCancellation.Dispose();
+            try{store?.Dispose();}catch(Exception error){disposed.TrySetException(error);}
+            finally{disposed.TrySetResult();}
         }
     }
     private void Advance()
@@ -218,7 +233,9 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         }
         if(starting is not null&&epoch<0&&Volatile.Read(ref stopRequested)==0)
         {
-            if(streams.Any(s=>s.Source!.Ready.IsFaulted)||pointer!.Ready.IsFaulted)Interrupt("Required native source failed readiness");
+            var failed=streams.Select(s=>s.Source!.Ready).Append(pointer!.Ready)
+                .FirstOrDefault(task=>task.IsCompleted&&!task.IsCompletedSuccessfully);
+            if(failed is not null)Interrupt(failed.IsCanceled?"Required native source readiness canceled":failed.Exception!.GetBaseException().Message);
             else if(streams.All(s=>s.Source!.Ready.IsCompletedSuccessfully)&&pointer!.Ready.IsCompletedSuccessfully)
             {
                 epoch=platform.NowUs;
@@ -244,9 +261,8 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
                 var metadata=frame!;session?.AcceptedFrame(stream.Target.Slot.Id,metadata.SourceTicks,metadata.EncodedTicks/10,metadata.DurationTicks/10);accepted++;
             }
             if(epoch<0)continue;
-            var image=Interlocked.Exchange(ref stream.Image,null);
-            var loss=Interlocked.Exchange(ref stream.LossTicks,long.MaxValue);
-            var reason=Interlocked.Exchange(ref stream.LossReason,null)??"Capture admission loss";
+            var batch=stream.Mailbox.Drain();var image=batch.Image;var loss=batch.LossTicks;
+            var reason=batch.LossReason??"Capture admission loss";
             if(image is not null&&image.SourceTicks<loss)stream.Timeline!.Image(image);
             if(loss!=long.MaxValue)stream.Timeline!.Drop(loss,reason);
             if(image is not null&&image.SourceTicks>=loss)stream.Timeline!.Image(image);
@@ -262,20 +278,23 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private bool NativeClosed()=>streams.All(s=>s.Source is null||s.Source.Closed.IsCompleted)&&(pointer is null||pointer.Closed.IsCompleted);
     private void FinishStop()
     {
+        if(Volatile.Read(ref quarantined)!=0)return;
         RequestNativeStop();
         if(!NativeClosed())
         {
             if(Environment.TickCount64-stopWallTicks>=DeadlineUs/1000)Quarantine("Native producer closure deadline exceeded");return;
         }
-        if(streams.Any(s=>s.Source?.Closed.IsFaulted==true)||pointer?.Closed.IsFaulted==true)
+        if(streams.Any(s=>s.Source is not null&&!s.Source.Closed.IsCompletedSuccessfully)||
+            (pointer is not null&&!pointer.Closed.IsCompletedSuccessfully))
         {Quarantine("Native producer closure failed");return;}
+        if(Volatile.Read(ref stopBoundary) is {ClockValid:false}){Quarantine("QPC stop boundary unavailable");return;}
         if(!timelinesStopped)
         {
             timelinesStopped=true;
             Volatile.Write(ref producersDrained,1);
             try
             {
-                Drain();
+                try{Drain();}catch(Exception error){Interlocked.CompareExchange(ref failure,error.Message,null);}
                 if(epoch>=0)
                 {
                     var stop=Math.Max(stopUs,epoch);
@@ -300,6 +319,8 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         }
         try
         {
+            if(streams.Any(s=>s.Encoder is not null&&!s.Encoder.Closed.GetAwaiter().GetResult().ClosureConfirmed))
+            {Quarantine("Native encoder closure failed");return;}
             if(epoch>=0)
             {
                 foreach(var stream in streams)
@@ -309,17 +330,21 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
                         terminal.EncodedDurationTicks/10,terminal.Failure);stream.Terminal=true;
                 }
                 var manifest=session!.Result??throw new RecordingException("Missing final native manifest");
-                var path=store!.Publish(manifest);completion=new(manifest,path,store.Recovery);
+                // CAS excludes an independent quarantine BEFORE any store publication.
+                if(Interlocked.CompareExchange(ref publishing,1,0)!=0||Volatile.Read(ref quarantined)!=0)return;
+                var path=store!.Publish(manifest);Volatile.Write(ref recovery,store.Recovery);completion=new(manifest,path,store.Recovery);
             }
             preparation?.TrySetException(new RecordingException(Volatile.Read(ref failure)??"Recording stopped before preparation"));
             starting?.TrySetException(new RecordingException(Volatile.Read(ref failure)??"Recording stopped before initialization"));
             stopped.TrySetResult(completion);
         }
-        catch(Exception error){Quarantine("Recording publication failed: "+error.Message);}
+        catch(Exception error){if(store is not null)Volatile.Write(ref recovery,store.Recovery);Quarantine("Recording publication failed: "+error.Message);}
     }
     private void Quarantine(string reason)
     {
-        if(quarantined)return;quarantined=true;Interlocked.CompareExchange(ref failure,reason,null);
+        if(Interlocked.Exchange(ref quarantined,1)!=0)return;
+        Interlocked.CompareExchange(ref publishing,2,0);Interlocked.CompareExchange(ref failure,reason,null);
+        Volatile.Write(ref ingress,0);Volatile.Write(ref producersDrained,1);
         foreach(var stream in streams)stream.Encoder?.Quarantine();
         var error=new RecordingException(reason+"; staging retained for recovery");
         preparation?.TrySetException(error);starting?.TrySetException(error);stopped.TrySetException(error);
@@ -328,6 +353,14 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         RequestStop("Recorder disposed");lock(commandGate)Interlocked.Exchange(ref disposeRequested,1);wake.Set();
         try{await stopped.Task;}catch(RecordingException){/* Recoverable quarantine is never deleted. */}
+        if(Volatile.Read(ref quarantined)!=0)
+        {
+            safetyStop.Cancel();
+            // Give a responsive owner its ordinary closure turn, but never await a
+            // stalled owner's journal/classifier/OS operation indefinitely.
+            if(await Task.WhenAny(disposed.Task,Task.Delay(100))==disposed.Task)await disposed.Task;
+            return;
+        }
         await disposed.Task;
     }
 }

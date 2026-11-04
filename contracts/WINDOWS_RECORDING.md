@@ -5,22 +5,22 @@ claim that the app has Record/Stop/Save/Open controls or that real capture/input
 and physical timing acceptance have been exercised. Existing RECORDING.md is
 binding; no project or recording wire/schema change is introduced.
 
-## Current checkpoint and remaining architecture
+## Implemented source boundary
 
-Implemented: internal exact QPC scalar conversion, pointer sample/control-gesture
-conversion, a one-pending-image source timeline, and a real MF H264 writer. The
-synthetic Windows suite exercises generated WARP pixels through that writer and
-native MF readback. The public controller/preparation/completion API below is a
-contract, not an implemented capture entry point. WGC sources, native mouse hook,
-serial controller/store lifecycle, bounded concurrent transport and shutdown
-integration are still pending; no app recording UI is present.
+The public controller below is implemented, with an injected platform seam for
+fake lifecycle faults and generated-only native encoder tests. Production uses
+exact frozen HMONITOR WGC sources, owned BGRA copies, a dedicated passive pointer
+hook, an independent watchdog, a named serial session/store owner and bounded
+same-thread MF encoder workers. No app recording UI is present. Compiling these
+paths and exercising generated pixels does not establish live capture, hook,
+Windows GUI, permissions, session/sleep/topology or physical timing acceptance.
 
 Direct MF Baseline with processor frame-rate conversion disabled preserves actual
 regular/VFR/one-long-static/late input images, coded PTS/duration and no audio.
 The writer creates the file exclusively, owns its COM apartment/thread, submits
 immutable sample-owned CPU buffers, retains failure, and finalizes once. Native
 readback confirms a rejected sparse continuation leaves the valid100ms prefix.
-The caller must run it on its dedicated bounded worker; that worker is pending.
+The controller runs each writer on its dedicated bounded worker.
 The portable timeline itself retains exactly one image, delays its duration until
 the next real source timestamp/loss/stop, and retains full unresolved loss spans.
 
@@ -75,9 +75,10 @@ The planned library namespace is `MotionClicker.Windows.Recording`, targeting
 
 Only a named serial owner accesses RecordingSession/RecordingStore, including
 projection/publication. API calls do not depend on the WinUI dispatcher. Native
-resources have separate bounded work transport. Exact resource bounds and
-shutdown behavior must be recorded here alongside the implementation before
-source-gate completion; no unspecified unbounded callback/task queue is allowed.
+resources have separate bounded work transport. RecoveryAsync reads the owner's
+cached immutable StoreRecovery value without entering its queue, including when
+the owner is stalled or disposed. No unspecified unbounded callback/task queue is
+used; no per-frame or per-pointer Task fanout occurs.
 
 ### Resume lifecycle and transport contract
 
@@ -85,9 +86,16 @@ The serial owner runs on a named background thread, independent of WinUI. Its AP
 command mailbox holds at most16 commands; a full mailbox rejects the request.
 Pointer ingress holds1024 immutable scalar packets; overflow interrupts the take.
 Each source holds one pending owned image handoff plus the timeline's one image.
+Image and earliest loss are a single atomically drained immutable batch, so a
+loss cannot be consumed by an earlier batch while its real image stays queued.
 Admission loss retains its earliest source timestamp until owner processing;
 it is never confused with a quiet/static display. Encoder workers hold3 input
-images and3 successful metadata acknowledgments each. Only native Append success
+images, one executing image and3 successful metadata-only acknowledgments each.
+The WGC frame pool has2 OS buffers; the source admits only one completed copy at
+a time, then returns the original frame/surface. An owned-copy operation, source
+mailbox, timeline,3 encoder inputs and executing encoder retain at most7 managed
+pixel arrays per source (acknowledgments retain no pixels). OS/MF internal buffer
+usage and long-run memory/storage still require runtime measurement. Only native Append success
 produces a metadata acknowledgment; only the owner mutates session/store.
 
 Preparation freezes monitor mapping and initializes same-thread encoder workers;
@@ -102,16 +110,25 @@ does not wait for the owner, UI, encoder or GPU thread. Known installation,
 uninstallation, pump exit, desktop/session/power/topology and source errors
 interrupt; stale callbacks cannot revive a stopped generation.
 
-Stop is idempotent. Native producers first acknowledge closure, admissible ingress
+Stop is idempotent. Its first QPC boundary admits already-observed pre-stop
+metadata/images through native closure; post-stop and closed-generation callbacks
+are rejected. A failed QPC stop observation still signals every native producer
+and quarantines, without inventing a timestamp. Native producers first acknowledge closure, admissible ingress
 is drained, every timeline closes at the stop QPC boundary, and every dedicated
 encoder drains/finalizes once. Owner consumes successful acknowledgments before
-writer terminals and publication. Native preparation/start/stop waits are bounded
-at10s; on unknown closure, staging is quarantined and Stop fails with recoverable
+writer terminals and publication. Encoder terminals explicitly acknowledge native
+closure separately from successful Append/counts. Native preparation/start/stop
+waits are bounded at10s; an independent watchdog can fail the stop wait even if
+the owner is stalled. On unknown native closure, staging is quarantined and Stop fails with recoverable
 paths available through RecoveryAsync. No manifest/media publication, deletion,
 resource disposal under live native work or prior-save overwrite occurs. A blocked
 OS call cannot safely be killed: its background worker retains its resources and
-performs closure itself if the call returns. The API wait is bounded, not a claim
-that Windows guarantees cancellation of an in-progress COM operation.
+performs closure itself if the call returns. Quarantined disposal allows100ms
+for a responsive owner then returns while a blocked owner retains its resources.
+Once all native closures are acknowledged and serial store publication begins,
+portable synchronous filesystem flush/move calls are not forcibly cancellable;
+their latency is an explicit remaining OS-I/O bound, not a10s publication promise.
+No prior save is overwritten and failed publication retains store recovery paths.
 
 ## Clock and pointer rules
 

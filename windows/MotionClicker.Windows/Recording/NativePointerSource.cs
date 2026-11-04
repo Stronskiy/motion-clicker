@@ -12,6 +12,7 @@ internal sealed class NativePointerSource : IWindowsPointerSource
     private readonly Action<WindowsPointerSample> sample;
     private readonly Action<string> fault;
     private readonly long frequency;
+    private readonly nuint ownInjectedTag;
     private readonly WindowsHookWatchdog watchdog=new(1);
     private readonly NativeRecordingInterop.HookProc callback;
     private readonly NativeRecordingInterop.WindowProc windowCallback;
@@ -21,9 +22,9 @@ internal sealed class NativePointerSource : IWindowsPointerSource
     private int started,stop;
     public Task Ready=>ready.Task;
     public Task Closed=>closed.Task;
-    internal NativePointerSource(long frequency,Action<WindowsPointerSample> sample,Action<string> fault)
+    internal NativePointerSource(long frequency,nuint ownInjectedTag,Action<WindowsPointerSample> sample,Action<string> fault)
     {
-        this.frequency=frequency;this.sample=sample;this.fault=fault;
+        this.frequency=frequency;this.ownInjectedTag=ownInjectedTag;this.sample=sample;this.fault=fault;
         callback=Observe;windowCallback=WindowMessage;
     }
     public void Start()
@@ -60,14 +61,15 @@ internal sealed class NativePointerSource : IWindowsPointerSource
         bool clockValid=NativeRecordingInterop.QueryPerformanceCounter(out var counter); // FIRST executable callback operation.
         try
         {
+            long observed=0;
+            if(clockValid){observed=WindowsRecordingClock.CounterToHostUs(counter,frequency);watchdog.CallbackEntered(1,observed);}
             if(!clockValid)Fail("Pointer QPC observation failed");
             else if(code>=0)
             {
-                var observed=WindowsRecordingClock.CounterToHostUs(counter,frequency);
-                watchdog.CallbackEntered(1,observed);
                 var packet=Marshal.PtrToStructure<NativeRecordingInterop.MousePacket>(pointer);
                 var kind=ActionKind.Move;MouseButton? button=null;double? dx=null,dy=null;bool supported=true;
-                switch(message)
+                if(packet.Extra==ownInjectedTag)supported=false;
+                else switch(message)
                 {
                     case 0x200:break;
                     case 0x201:kind=ActionKind.ButtonDown;button=MouseButton.Left;break;

@@ -8,12 +8,17 @@ namespace MotionClicker.Windows.Recording;
 
 public sealed partial class WindowsRecordingController
 {
-    public WindowsRecordingController(WindowsRecordingOptions options):this(options,new NativeWindowsRecordingPlatform()) { }
+    public WindowsRecordingController(WindowsRecordingOptions options):this(options,NativePlatform(options)) { }
+    private static IWindowsRecordingPlatform NativePlatform(WindowsRecordingOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);return new NativeWindowsRecordingPlatform(options.OwnInjectedTag);
+    }
 }
 
-internal sealed class NativeWindowsRecordingPlatform : IWindowsRecordingPlatform
+internal sealed class NativeWindowsRecordingPlatform(nuint ownInjectedTag) : IWindowsRecordingPlatform
 {
     private readonly long frequency=NativeRecordingInterop.Frequency();
+    private readonly Dictionary<string,nint> frozenMonitors=new(StringComparer.Ordinal);
     public long NowUs=>NativeRecordingInterop.Now(frequency);
     public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)
     {
@@ -23,6 +28,7 @@ internal sealed class NativeWindowsRecordingPlatform : IWindowsRecordingPlatform
         return targets.Select(t=>
         {
             var monitor=Resolve(t);var size=monitor.Display.NativeBounds.Size;
+            if(!frozenMonitors.TryAdd(t.Display.Id,monitor.Handle))throw new RecordingException("Duplicate frozen native monitor");
             int width=checked((int)size.Width),height=checked((int)size.Height);
             if(width<=0||height<=0||width%2!=0||height%2!=0||(long)width*height>33_177_600)
                 throw new RecordingException("Selected monitor has unsupported H264 dimensions");
@@ -50,7 +56,8 @@ internal sealed class NativeWindowsRecordingPlatform : IWindowsRecordingPlatform
             throw new RecordingException("Frozen monitor identity, bounds, scaling or rotation changed");
         return(found,selected);
     }
-    public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)=>new NativeWgcSource(target,image,drop,fault);
-    public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault)=>new NativePointerSource(frequency,sample,fault);
+    public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)=>
+        new NativeWgcSource(target,frozenMonitors[target.Display.Id],image,drop,fault);
+    public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault)=>new NativePointerSource(frequency,ownInjectedTag,sample,fault);
     public IWindowsVideoEncoder Encoder(string path,int width,int height)=>new NativeVideoWriter(path,width,height);
 }

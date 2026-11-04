@@ -46,7 +46,12 @@ internal sealed class NativeVideoWriter : IWindowsVideoEncoder
             DisableFrameRateConversion(writer,stream);
             writer.BeginWriting();
         }
-        catch { try { CloseNative(); } catch { /* Preserve the initialization cause and its staging path. */ } throw; }
+        catch(Exception initialization)
+        {
+            try{CloseNative();}
+            catch(Exception closure){throw new NativeEncoderClosureException("Encoder initialization failed: "+initialization.Message+"; closure unknown: "+closure.Message);}
+            throw;
+        }
     }
 
     private static void ConfigureType(IMFMediaType type,Guid subtype,int width,int height)
@@ -112,10 +117,11 @@ internal sealed class NativeVideoWriter : IWindowsVideoEncoder
         if(terminal is not null)return terminal;
         try { writer?.Finalize(); }
         catch(Exception error) { failure??=error.Message; }
+        bool closureConfirmed=true;
         try { CloseNative(); }
-        catch(Exception error) { failure??=error.Message; }
+        catch(Exception error) { failure??=error.Message;closureConfirmed=false; }
         if(count==0)failure??="No captured images";
-        terminal=new(failure is null,count,end,failure);
+        terminal=new(failure is null,count,end,failure,closureConfirmed);
         return terminal;
     }
 

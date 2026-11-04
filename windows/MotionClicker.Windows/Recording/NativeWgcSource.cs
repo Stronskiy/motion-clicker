@@ -12,7 +12,7 @@ using WinRT;
 
 namespace MotionClicker.Windows.Recording;
 
-internal sealed class NativeWgcSource(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault) : IWindowsRecordingSource
+internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault) : IWindowsRecordingSource
 {
     private readonly TaskCompletionSource ready=new(TaskCreationOptions.RunContinuationsAsynchronously),closed=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ManualResetEventSlim stopSignal=new(false);
@@ -74,6 +74,7 @@ internal sealed class NativeWgcSource(RecordingTarget target,Action<WindowsVideo
             if(Volatile.Read(ref stop)!=0)throw new RecordingException("Capture canceled before start");
             if(!GraphicsCaptureSession.IsSupported())throw new RecordingException("Windows Graphics Capture is unsupported or unavailable");
             var mapped=NativeWindowsRecordingPlatform.Resolve(target);
+            if(mapped.Handle!=frozenMonitor)throw new RecordingException("Frozen HMONITOR changed before WGC start");
             item=ForMonitor(mapped.Handle);
             if(item.Size.Width!=target.Display.NativeBounds.Size.Width||item.Size.Height!=target.Display.NativeBounds.Size.Height)
                 throw new RecordingException("WGC item dimensions differ from frozen monitor");
