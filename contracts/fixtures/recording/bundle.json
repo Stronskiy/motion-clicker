@@ -1,0 +1,379 @@
+{
+  "manifest": {
+    "manifestVersion": 1,
+    "takeId": "take",
+    "state": "completed",
+    "epochHostUs": 9007199254740993,
+    "durationUs": 100,
+    "targets": [
+      {
+        "id": "left",
+        "name": "Left",
+        "geometry": {
+          "origin": {
+            "x": 0,
+            "y": 0
+          },
+          "size": {
+            "width": 100,
+            "height": 100
+          },
+          "scaleFactor": 1,
+          "rotationDegrees": 0
+        }
+      },
+      {
+        "id": "right",
+        "name": "Right",
+        "geometry": {
+          "origin": {
+            "x": 100,
+            "y": 0
+          },
+          "size": {
+            "width": 100,
+            "height": 100
+          },
+          "scaleFactor": 1,
+          "rotationDegrees": 0
+        }
+      }
+    ],
+    "streams": [
+      {
+        "monitorSlotId": "left",
+        "relativePath": "media/take/left.mp4",
+        "clock": {
+          "sourceAnchorTicks": 0,
+          "hostAnchorUs": 9007199254740993,
+          "ticksPerSecond": 1000000
+        },
+        "mediaTimeZeroUs": 0,
+        "encodedDurationUs": 100,
+        "frameCount": 1,
+        "gaps": [],
+        "writerStatus": "succeeded",
+        "gapCount": 0,
+        "gapJournalPath": "takes/take/gaps.jsonl"
+      },
+      {
+        "monitorSlotId": "right",
+        "relativePath": "media/take/right.mp4",
+        "clock": {
+          "sourceAnchorTicks": 0,
+          "hostAnchorUs": 9007199254740998,
+          "ticksPerSecond": 1000000
+        },
+        "mediaTimeZeroUs": 5,
+        "encodedDurationUs": 95,
+        "frameCount": 1,
+        "gaps": [
+          {
+            "startUs": 0,
+            "endUs": 5,
+            "kind": "leading"
+          }
+        ],
+        "writerStatus": "succeeded",
+        "gapCount": 1,
+        "gapJournalPath": "takes/take/gaps.jsonl"
+      }
+    ],
+    "rawEventCount": 4,
+    "incompleteGroupIds": [],
+    "warnings": [],
+    "pointerTimingBasis": "nativeHostObservation"
+  },
+  "raw": [
+    {
+      "sequence": 0,
+      "event": {
+        "hostTimeUs": 9007199254741003,
+        "nativePosition": {
+          "x": 10,
+          "y": 10
+        },
+        "kind": "buttonDown",
+        "isOwnInjected": false,
+        "isControl": false,
+        "timing": {
+          "basis": "nativeHostObservation",
+          "hostClock": "machAbsolute",
+          "packetClock": "cgEventTimestamp",
+          "packetUnits": "nanoseconds",
+          "packetTimestamp": "18446744073709551615",
+          "ownerDelayUs": 9007199254740993
+        },
+        "button": "left"
+      },
+      "timeUs": 10,
+      "action": {
+        "id": "e0",
+        "takeId": "take",
+        "monitorSlotId": "left",
+        "timeUs": 10,
+        "order": 0,
+        "kind": "buttonDown",
+        "x": 10,
+        "y": 10,
+        "atomicGroupId": "hold",
+        "button": "left"
+      },
+      "atomicGroupId": "hold"
+    },
+    {
+      "sequence": 1,
+      "event": {
+        "hostTimeUs": 9007199254741013,
+        "nativePosition": {
+          "x": 110,
+          "y": 10
+        },
+        "kind": "move",
+        "isOwnInjected": false,
+        "isControl": false,
+        "timing": {
+          "basis": "nativeHostObservation",
+          "hostClock": "machAbsolute",
+          "packetClock": "cgEventTimestamp",
+          "packetUnits": "nanoseconds",
+          "packetTimestamp": "18446744073709551615",
+          "ownerDelayUs": 9007199254740993
+        }
+      },
+      "timeUs": 20,
+      "action": {
+        "id": "e1",
+        "takeId": "take",
+        "monitorSlotId": "right",
+        "timeUs": 20,
+        "order": 1,
+        "kind": "move",
+        "x": 10,
+        "y": 10,
+        "atomicGroupId": "hold"
+      },
+      "atomicGroupId": "hold"
+    },
+    {
+      "sequence": 2,
+      "event": {
+        "hostTimeUs": 9007199254741023,
+        "nativePosition": {
+          "x": 120,
+          "y": 10
+        },
+        "kind": "buttonUp",
+        "isOwnInjected": false,
+        "isControl": false,
+        "timing": {
+          "basis": "nativeHostObservation",
+          "hostClock": "machAbsolute",
+          "packetClock": "cgEventTimestamp",
+          "packetUnits": "nanoseconds",
+          "packetTimestamp": "18446744073709551615",
+          "ownerDelayUs": 9007199254740993
+        },
+        "button": "left"
+      },
+      "timeUs": 30,
+      "action": {
+        "id": "e2",
+        "takeId": "take",
+        "monitorSlotId": "right",
+        "timeUs": 30,
+        "order": 2,
+        "kind": "buttonUp",
+        "x": 20,
+        "y": 10,
+        "atomicGroupId": "hold",
+        "button": "left"
+      },
+      "atomicGroupId": "hold"
+    },
+    {
+      "sequence": 3,
+      "event": {
+        "hostTimeUs": 9007199254741033,
+        "nativePosition": {
+          "x": 20,
+          "y": 10
+        },
+        "kind": "move",
+        "isOwnInjected": false,
+        "isControl": false,
+        "timing": {
+          "basis": "nativeHostObservation",
+          "hostClock": "machAbsolute",
+          "packetClock": "cgEventTimestamp",
+          "packetUnits": "nanoseconds",
+          "packetTimestamp": "18446744073709551615",
+          "ownerDelayUs": 9007199254740993
+        }
+      },
+      "timeUs": 40,
+      "action": {
+        "id": "bundle-project",
+        "takeId": "take",
+        "monitorSlotId": "left",
+        "timeUs": 40,
+        "order": 3,
+        "kind": "move",
+        "x": 20,
+        "y": 10
+      }
+    }
+  ],
+  "gaps": [
+    {
+      "monitorSlotId": "right",
+      "gap": {
+        "startUs": 0,
+        "endUs": 5,
+        "kind": "leading"
+      }
+    }
+  ],
+  "expectedProject": {
+    "schemaVersion": 1,
+    "id": "bundle-project-1",
+    "revision": 0,
+    "monitorSlots": [
+      {
+        "id": "left",
+        "name": "Left",
+        "geometry": {
+          "origin": {
+            "x": 0,
+            "y": 0
+          },
+          "size": {
+            "width": 100,
+            "height": 100
+          },
+          "scaleFactor": 1,
+          "rotationDegrees": 0
+        }
+      },
+      {
+        "id": "right",
+        "name": "Right",
+        "geometry": {
+          "origin": {
+            "x": 100,
+            "y": 0
+          },
+          "size": {
+            "width": 100,
+            "height": 100
+          },
+          "scaleFactor": 1,
+          "rotationDegrees": 0
+        }
+      }
+    ],
+    "takes": [
+      {
+        "id": "take",
+        "durationUs": 100,
+        "monitorSlotIds": [
+          "left",
+          "right"
+        ],
+        "media": [
+          {
+            "monitorSlotId": "left",
+            "relativePath": "media/take/left.mp4"
+          },
+          {
+            "monitorSlotId": "right",
+            "relativePath": "media/take/right.mp4"
+          }
+        ]
+      }
+    ],
+    "tracks": [
+      {
+        "id": "bundle-track-0",
+        "name": "Left",
+        "monitorSlotId": "left",
+        "order": 0
+      },
+      {
+        "id": "bundle-track-1",
+        "name": "Right",
+        "monitorSlotId": "right",
+        "order": 1
+      }
+    ],
+    "clips": [
+      {
+        "id": "bundle-clip-0",
+        "trackId": "bundle-track-0",
+        "takeId": "take",
+        "sourceInUs": 0,
+        "sourceOutUs": 100,
+        "timelineStartUs": 0,
+        "speed": 1,
+        "linkGroupId": "bundle-link"
+      },
+      {
+        "id": "bundle-clip-1",
+        "trackId": "bundle-track-1",
+        "takeId": "take",
+        "sourceInUs": 0,
+        "sourceOutUs": 100,
+        "timelineStartUs": 0,
+        "speed": 1,
+        "linkGroupId": "bundle-link"
+      }
+    ],
+    "events": [
+      {
+        "id": "e0",
+        "takeId": "take",
+        "monitorSlotId": "left",
+        "timeUs": 10,
+        "order": 0,
+        "kind": "buttonDown",
+        "x": 10,
+        "y": 10,
+        "atomicGroupId": "hold",
+        "button": "left"
+      },
+      {
+        "id": "e1",
+        "takeId": "take",
+        "monitorSlotId": "right",
+        "timeUs": 20,
+        "order": 1,
+        "kind": "move",
+        "x": 10,
+        "y": 10,
+        "atomicGroupId": "hold"
+      },
+      {
+        "id": "e2",
+        "takeId": "take",
+        "monitorSlotId": "right",
+        "timeUs": 30,
+        "order": 2,
+        "kind": "buttonUp",
+        "x": 20,
+        "y": 10,
+        "atomicGroupId": "hold",
+        "button": "left"
+      },
+      {
+        "id": "bundle-project",
+        "takeId": "take",
+        "monitorSlotId": "left",
+        "timeUs": 40,
+        "order": 3,
+        "kind": "move",
+        "x": 20,
+        "y": 10
+      }
+    ]
+  }
+}
