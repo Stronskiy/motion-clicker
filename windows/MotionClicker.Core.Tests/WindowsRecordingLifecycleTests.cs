@@ -45,7 +45,7 @@ public sealed class WindowsRecordingLifecycleTests
         internal readonly string Root=Path.Combine(Path.GetTempPath(),"mc-lifecycle-"+Guid.NewGuid());
         internal readonly Platform Platform=new();
         internal readonly WindowsRecordingController Controller;
-        internal Fixture(){Directory.CreateDirectory(Root);Controller=new(new(99,_=>false),Platform);}
+        internal Fixture(Func<WindowsPointerSample,bool>? control=null){Directory.CreateDirectory(Root);Controller=new(new(99,control??(_=>false)),Platform);}
         internal Task<WindowsRecordingPreparation> Prepare()=>Controller.PrepareAsync([RecordingSessionTests.Targets()[0]],Root,"take");
         public async ValueTask DisposeAsync(){await Controller.DisposeAsync();Directory.Delete(Root,true);}
     }
@@ -95,6 +95,42 @@ public sealed class WindowsRecordingLifecycleTests
         await Assert.ThrowsAsync<RecordingException>(()=>start.WaitAsync(TimeSpan.FromSeconds(3)));
         var done=await f.Controller.StopAsync();Assert.Equal(0,done!.Manifest.Streams[0].FrameCount);
         Assert.Equal(RecordingState.Interrupted,done.Manifest.State);
+    }
+    [Fact] public async Task StopDrainsAlreadyObservedImageBeforeNativeClosure()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        f.Platform.Video.AutoClose=false;Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        var stop=f.Controller.StopAsync();f.Platform.Frame(1_050_000);await f.Controller.SnapshotAsync();
+        Assert.False(stop.IsCompleted);f.Platform.Video.ClosedSignal.TrySetResult();
+        Assert.Equal(2,(await stop)!.Manifest.Streams[0].FrameCount);
+    }
+    [Fact] public async Task UnknownClosureQuarantinesStagingInsteadOfPublishing()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        f.Platform.Video.AutoClose=false;Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        var stop=f.Controller.StopAsync();f.Platform.Video.ClosedSignal.TrySetException(new IOException("unhook/closure unknown"));
+        await Assert.ThrowsAsync<RecordingException>(()=>stop);
+        var recovery=(await f.Controller.RecoveryAsync())!;
+        Assert.False(recovery.MediaPublished);Assert.False(recovery.ManifestPublished);Assert.True(Directory.Exists(recovery.StagingPath));
+    }
+    [Fact] public async Task PointerOverflowRequestsNativeStopWhileOwnerIsBlocked()
+    {
+        using var entered=new ManualResetEventSlim();using var release=new ManualResetEventSlim();
+        await using var f=new Fixture(_=>{entered.Set();release.Wait(TimeSpan.FromSeconds(5));return false;});
+        await f.Prepare();var start=f.Controller.StartAsync();await WaitForState(f.Controller,RecordingState.Recording);
+        f.Platform.Frame(1_000_010);await start;Interlocked.Exchange(ref f.Platform.Now,1_000_100);
+        var packet=new WindowsPointerSample(1_000_020,3,new(-10,10),ActionKind.Move,null,null,null,0);
+        f.Platform.Sample!(packet);Assert.True(entered.Wait(TimeSpan.FromSeconds(3)));
+        try
+        {
+            for(int i=0;i<1025;i++)f.Platform.Sample(packet);
+            Assert.True(SpinWait.SpinUntil(()=>Volatile.Read(ref f.Platform.Video.Stops)>0,TimeSpan.FromSeconds(2)));
+        }
+        finally{release.Set();}
+        var done=await f.Controller.StopAsync();Assert.Equal(RecordingState.Interrupted,done!.Manifest.State);
+        Assert.Contains("Pointer mailbox overflow",done.Manifest.Reason);
     }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
