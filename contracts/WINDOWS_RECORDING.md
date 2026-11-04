@@ -5,6 +5,33 @@ claim that the app has Record/Stop/Save/Open controls or that real capture/input
 and physical timing acceptance have been exercised. Existing RECORDING.md is
 binding; no project or recording wire/schema change is introduced.
 
+## Current checkpoint and remaining architecture
+
+Implemented: internal exact QPC scalar conversion, pointer sample/control-gesture
+conversion, a one-pending-image source timeline, and a real MF H264 writer. The
+synthetic Windows suite exercises generated WARP pixels through that writer and
+native MF readback. The public controller/preparation/completion API below is a
+contract, not an implemented capture entry point. WGC sources, native mouse hook,
+serial controller/store lifecycle, bounded concurrent transport and shutdown
+integration are still pending; no app recording UI is present.
+
+Direct MF Baseline with processor frame-rate conversion disabled preserves actual
+regular/VFR/one-long-static/late input images, coded PTS/duration and no audio.
+The writer creates the file exclusively, owns its COM apartment/thread, submits
+immutable sample-owned CPU buffers, retains failure, and finalizes once. Native
+readback confirms a rejected sparse continuation leaves the valid100ms prefix.
+The caller must run it on its dedicated bounded worker; that worker is pending.
+The portable timeline itself retains exactly one image, delays its duration until
+the next real source timestamp/loss/stop, and retains full unresolved loss spans.
+
+[Microsoft's hook documentation](https://learn.microsoft.com/en-us/windows/win32/winmsg/lowlevelmouseproc)
+states that timeout removal of WH_MOUSE_LL can be silent and cannot be queried.
+A dedicated fast hook thread plus pump/callback watchdog can detect our observed
+stall paths, but cannot prove arbitrary silent hook removal. Before implementing
+that hook path, the controller must decide whether this explicit coverage limit
+satisfies the source gate or whether the observation architecture must change.
+No input sentinel, settings mutation or unsupported detection claim is proposed.
+
 ## Public surface
 
 The planned library namespace is `MotionClicker.Windows.Recording`, targeting
@@ -86,9 +113,13 @@ A real Windows synthetic probe confirmed Vortice3.8.3/CsWinRT2.2 device and surf
 ABI wrapping, generated WARP pixels and completed SoftwareBitmap deep copy.
 The MediaTranscoder Baseline path preserved regular30fps PTS/count/duration but
 created extra images for VFR and a single long static sample, so it is rejected.
-The controller approved probing direct MF IMFSinkWriter through the already
-pinned Vortice.MediaFoundation3.8.3; this is still a capability experiment until
-its static/VFR/late/count/duration/noaudio native readback passes.
+The direct MF IMFSinkWriter through pinned Vortice.MediaFoundation3.8.3 passed
+static/VFR/late/count/duration/noaudio native readback after disabling the Video
+Processor MFT frame-rate conversion with MF_XVP_DISABLE_FRC before BeginWriting.
+Sparse continuation remains rejected before native submission. Finalize releases
+the sink and its byte stream once; tests reopen the file exclusively before
+readback to verify closure. Extra Close after sink release returned E_INVALIDARG
+on the actual Windows runner and is deliberately not performed.
 
 No screen/hook/personal-content probe is authorized here. No failed or zero-frame
 writer becomes successful; no prior file may be overwritten. If a muxer cannot

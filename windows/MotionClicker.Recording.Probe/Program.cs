@@ -7,10 +7,6 @@ using Vortice.Mathematics;
 using Vortice.MediaFoundation;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
-using Windows.Media.Core;
-using Windows.Media.MediaProperties;
-using Windows.Media.Transcoding;
-using Windows.Storage;
 using Windows.Storage.Streams;
 using WinRT;
 
@@ -79,38 +75,6 @@ static class Probe
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }
-    }
-
-    private static async Task Encode(string path,IBuffer pixels,long[] timestamps,long[] durations)
-    {
-        var properties=VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8,64,64);
-        properties.FrameRate.Numerator=30; properties.FrameRate.Denominator=1;
-        var source=new MediaStreamSource(new VideoStreamDescriptor(properties)) { BufferTime=TimeSpan.Zero };
-        source.Starting+=(_,e)=>e.Request.SetActualStartPosition(TimeSpan.Zero);
-        var index=0;
-        source.SampleRequested+=(_,e)=>
-        {
-            if(index==timestamps.Length) { e.Request.Sample=null;return; }
-            var pts=timestamps[index]-timestamps[0];
-            var end=pts+durations[index];
-            var sample=MediaStreamSample.CreateFromBuffer(pixels,TimeSpan.FromTicks(pts));
-            sample.Duration=TimeSpan.FromTicks(end-pts);
-            index++;
-            e.Request.Sample=sample;
-        };
-        var profile=MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p);
-        profile.Audio=null;
-        profile.Video.Width=64;profile.Video.Height=64;profile.Video.Bitrate=1_000_000;
-        profile.Video.ProfileId=H264ProfileIds.Baseline;
-        profile.Video.FrameRate.Numerator=30;profile.Video.FrameRate.Denominator=1;
-        var folder=await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(path)!);
-        var file=await folder.CreateFileAsync(Path.GetFileName(path),CreationCollisionOption.FailIfExists);
-        using var output=await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite);
-        var transcoder=new MediaTranscoder { HardwareAccelerationEnabled=false };
-        var prepared=await transcoder.PrepareMediaStreamSourceTranscodeAsync(source,output,profile);
-        if(!prepared.CanTranscode) throw new Exception($"Required H264 unavailable: {prepared.FailureReason}");
-        await prepared.TranscodeAsync();
-        Console.WriteLine($"ENCODE generated inputs={index}; bytes={output.Size}");
     }
 
     internal static void Read(string path,long[] timestamps,long[] durations)

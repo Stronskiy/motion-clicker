@@ -1,7 +1,8 @@
 name: Windows recording synthetic probe
 on:
   push:
-    branches: [feat/windows-recording]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,7 +30,7 @@ jobs:
         run: |
           dotnet run --project MotionClicker.Recording.Probe -c Release --no-restore | Tee-Object probe-native.log
           exit $LASTEXITCODE
-      - name: Focused recording clock behavior
+      - name: Recording clock, pointer and source timeline behavior
         if: always()
         run: |
           dotnet restore MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj --locked-mode

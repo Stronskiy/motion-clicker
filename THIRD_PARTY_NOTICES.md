@@ -1,7 +1,7 @@
-# Windows native probe third-party notices
+# Windows recording third-party notices
 
-These packages are currently used by the synthetic Windows native capability probe.
-They are not evidence that the production recording adapter is complete.
+These packages are used by the native Windows encoder and its synthetic tests.
+The complete recording controller and source/hook lifecycle are not implemented yet.
 Exact resolved package versions and integrity hashes are in its packages.lock.json.
 SharpGen beta transitives are explicit; NuGet security auditing remains enabled.
 Windows SDK, .NET and CsWinRT components retain their Microsoft licenses.
