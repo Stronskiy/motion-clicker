@@ -212,7 +212,8 @@ struct ClickPoint: Identifiable {
             do { install(try await BundleIO.open(url),root:url) }
             catch {
                 recoveryEntries=await BundleIO.recovery(url)
-                self.error="Bundle cannot be opened: \(error). \(recoveryEntries.isEmpty ? "No recoverable entries found." : "Recoverable data remains at " + url.path)"
+                let message=(error as? RecordingError)?.message ?? error.localizedDescription
+                self.error="Bundle cannot be opened: \(message). \(recoveryEntries.isEmpty ? "No recoverable entries found." : "Recoverable data remains at " + url.path)"
             }
         }
     }
