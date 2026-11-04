@@ -98,6 +98,7 @@ static class Probe
             } catch(Exception error) { failures.Add("controller: "+error); }
             try { await PlaybackChecks.Run(directory); } catch(Exception error) { failures.Add("playback: "+error);Console.WriteLine("FAIL playback: "+error); }
             try { await VideoInspectionChecks.Run(directory); } catch(Exception error) { failures.Add("inspection: "+error);Console.WriteLine("FAIL inspection: "+error); }
+            try { await BundlePlaybackChecks.Run(directory); } catch(Exception error) { failures.Add("bundle playback: "+error);Console.WriteLine("FAIL bundle playback: "+error); }
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }
