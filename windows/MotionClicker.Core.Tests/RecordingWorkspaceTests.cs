@@ -71,6 +71,18 @@ public sealed class RecordingWorkspaceTests {
         await model.RecordAsync([Target],"old.motionclicker",0);var oldProgress=model.PollProgressAsync();await model.StopAsync();
         await model.RecordAsync([Target],"new.motionclicker",0);services.Progress.SetResult("stale old source");Assert.Null(await oldProgress);await model.StopAsync();
     }
+    [Fact] public async Task IdentifyBlocksRecordingUntilEveryTransientWindowAcknowledgesClosure() {
+        var gate=new AppOperationGate();var services=new FakeServices();var model=new RecordingWorkspace(services,gate);
+        var visible=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var closing=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);var closed=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var identify=new IdentifyOperation(gate).RunAsync(()=>{},async()=>{closing.SetResult();await closed.Task;},_=>visible.Task);
+        try {
+            await Assert.ThrowsAnyAsync<Exception>(()=>model.RecordAsync([Target],"overlap.motionclicker",0));Assert.Empty(services.Calls);
+            visible.SetResult();await closing.Task;
+            await Assert.ThrowsAnyAsync<Exception>(()=>model.RecordAsync([Target],"closing.motionclicker",0));Assert.Empty(services.Calls);Assert.True(gate.Busy);
+            closed.SetResult();await identify;Assert.False(gate.Busy);
+            await model.RecordAsync([Target],"acknowledged.motionclicker",0);Assert.Equal(WorkspacePhase.Recording,model.Phase);
+        } finally {visible.TrySetResult();closed.TrySetResult();await identify;await model.StopAsync();}
+    }
     private static async Task Until(Func<bool> condition) { using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5));while(!condition())await Task.Delay(1,deadline.Token); }
     internal static RecordingTarget Target { get; }=new(new("slot","Display",new(new(0,0),new(64,64),1,0)),new("native","Display",new(new(0,0),new(64,64),1,0),new(new(0,0),new(64,64))));
     private sealed class FakeServices : IRecordingWorkspaceServices {

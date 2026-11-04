@@ -284,3 +284,16 @@ Open errors remain visible until the next deliberate operation, rather than
 being overwritten by the periodic recording status display. Current Windows
 GUI appearance, keyboard/focus/picker and physical DPI behavior still need a
 controlled session; native source compilation is not that evidence.
+
+### Task6 review repair boundary
+
+`ISourceSeekSession` and `SourceSeekReadiness.WaitAsync` separate native
+SeekCompleted acknowledgment from setting Position and MediaOpened. The caller
+must remain masked/pending until this generation-bound check completes within
+the approved clear file-time interval; stale/canceled/timed-out/failed seeks
+cannot authorize display or Play. An already-at-target no-op is checked explicitly.
+`NativePlaybackSeekSession` bridges the pinned SDK's SeekCompleted/MediaFailed
+without UI or input dependencies. Generated-only native probes cover this boundary.
+`IdentifyOperation.RunAsync` owns display-identifier window admission, visible
+lifetime and final acknowledged closure through the app operation gate. Native
+windows must acknowledge Closed before this operation permits recording sources.

@@ -13,6 +13,8 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
     <ProjectReference Include="../MotionClicker.Core/MotionClicker.Core.csproj" />
+    <Compile Include="../MotionClicker.Windows/Recording/SourceSeekReadiness.cs" Link="SourceSeekReadiness.cs" />
+    <Compile Include="../MotionClicker.Windows/RecordingUI/IdentifyOperation.cs" Link="IdentifyOperation.cs" />
     <Compile Include="../MotionClicker.Windows/RecordingUI/RecordingWorkspace.cs" Link="RecordingWorkspace.cs" />
     <Compile Include="../MotionClicker.Windows/RecordingUI/AppOperationGate.cs" Link="AppOperationGate.cs" />
     <Compile Include="../MotionClicker.Windows/RecordingUI/ControlRegions.cs" Link="ControlRegions.cs" />

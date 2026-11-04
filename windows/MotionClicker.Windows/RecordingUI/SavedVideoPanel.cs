@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using MotionClicker.Core;
 using MotionClicker.Core.Recording;
+using MotionClicker.Windows.Recording;
 using global::Windows.Media.Core;
 using global::Windows.Media.Playback;
 using global::Windows.Storage;
@@ -102,7 +103,8 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
                 surface.SetMediaPlayer(native);native.Source=item;
                 await opened.Task.WaitAsync(TimeSpan.FromSeconds(20),closing.Token);
                 if(query.Generation!=generation||disposed){ReleasePlayer();continue;}
-                native.PlaybackSession.Position=pts;
+                using var seekSession=new NativePlaybackSeekSession(native);
+                _=await SourceSeekReadiness.WaitAsync(seekSession,pts,TimeSpan.FromTicks(checked(Math.Max(0,inspected.StartUs-query.Media.MediaTimeZeroUs)*10)),endpoint,()=>query.Generation==Volatile.Read(ref generation)&&!Volatile.Read(ref disposed),closing.Token);
                 surface.Visibility=Visibility.Visible;unavailable.Visibility=Visibility.Collapsed;play.IsEnabled=true;pause.IsEnabled=true;
                 if(query.Play)native.Play();
             }
