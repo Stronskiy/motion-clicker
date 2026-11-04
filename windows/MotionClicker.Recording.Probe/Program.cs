@@ -57,8 +57,7 @@ static class Probe
                 ("single",[0],[333333]),
                 ("static-tail",[0],[20_000_000]),
                 ("vfr",[0,1_000_000,9_000_000],[1_000_000,8_000_000,1_000_000]),
-                ("late",[50_000_000,50_333_333],[333333,333333]),
-                ("gap",[0,40_000_000],[1_000_000,1_000_000])
+                ("late",[50_000_000,50_333_333],[333333,333333])
             };
             List<string> failures=[];
             foreach(var test in cases)
@@ -66,10 +65,17 @@ static class Probe
                 var path=Path.Combine(directory,$"{test.Name}.mp4");
                 try {
                     Console.WriteLine($"CASE {test.Name}; inputPTS100ns=[{string.Join(',',test.Pts)}]; inputDuration100ns=[{string.Join(',',test.Durations)}]");
-                    await Task.Run(()=>MfEncoder.Encode(path,pixels,test.Pts,test.Durations)).WaitAsync(TimeSpan.FromSeconds(45));
+                    byte[] bytes=new byte[pixels.Length];
+                    using(var pixelReader=DataReader.FromBuffer(pixels))pixelReader.ReadBytes(bytes);
+                    await Task.Run(()=>WriterChecks.Encode(path,bytes,test.Pts,test.Durations)).WaitAsync(TimeSpan.FromSeconds(45));
                     Read(path,test.Pts,test.Durations);
                 } catch(Exception error) { failures.Add(test.Name+": "+error);Console.WriteLine($"FAIL {test.Name}: {error.Message}"); }
             }
+            try {
+                byte[] bytes=new byte[pixels.Length];
+                using(var pixelReader=DataReader.FromBuffer(pixels))pixelReader.ReadBytes(bytes);
+                await Task.Run(()=>WriterChecks.Failures(directory,bytes)).WaitAsync(TimeSpan.FromSeconds(45));
+            } catch(Exception error) { failures.Add("writer failures: "+error); }
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }
@@ -107,7 +113,7 @@ static class Probe
         Console.WriteLine($"ENCODE generated inputs={index}; bytes={output.Size}");
     }
 
-    private static void Read(string path,long[] timestamps,long[] durations)
+    internal static void Read(string path,long[] timestamps,long[] durations)
     {
         MediaFactory.MFStartup().CheckError();
         try

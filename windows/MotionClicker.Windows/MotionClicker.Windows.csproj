@@ -21,5 +21,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9457" />
     <ProjectReference Include="../MotionClicker.Core/MotionClicker.Core.csproj" />
+    <ProjectReference Include="../MotionClicker.Recording.Windows/MotionClicker.Recording.Windows.csproj" />
+    <Compile Remove="Recording/**/*.cs" />
   </ItemGroup>
 </Project>
