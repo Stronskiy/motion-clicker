@@ -253,7 +253,7 @@ struct RunnerSnapshotView {
     @State private var model=ClickerModel()
     @NSApplicationDelegateAdaptor(RecordingAppDelegate.self) private var appDelegate
     var body: some Scene {
-        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:720).onAppear { appDelegate.model=model } }
+        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:668).onAppear { appDelegate.model=model } }
             .defaultLaunchBehavior(.presented).defaultSize(width:1180,height:800).windowResizability(.contentMinSize).windowToolbarStyle(.unified)
             .commands {
                 CommandGroup(replacing:.newItem) {
