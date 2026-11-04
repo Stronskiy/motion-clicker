@@ -80,6 +80,7 @@ public sealed class WindowsRecordingLifecycleTests
     {
         await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
         await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_000_030);
         f.Platform.Sample!(new(1_000_020,77,new(-10,10),ActionKind.ButtonDown,MouseButton.Left,null,null,0));
         await f.Controller.SnapshotAsync();Interlocked.Exchange(ref f.Platform.Now,1_100_000);f.Platform.Fault!("session locked");
         var done=await f.Controller.StopAsync();Assert.Equal(RecordingState.Interrupted,done!.Manifest.State);

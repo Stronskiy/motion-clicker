@@ -6,7 +6,7 @@ namespace MotionClicker.Windows.Recording;
 
 // All methods and COM lifetime belong to a single dedicated encoder thread.
 // Each submitted buffer is immutable and independently owned by its MF sample.
-internal sealed class NativeVideoWriter : IDisposable
+internal sealed class NativeVideoWriter : IWindowsVideoEncoder
 {
     [DllImport("ole32.dll")] private static extern int CoInitializeEx(nint reserved,uint mode);
     [DllImport("ole32.dll")] private static extern void CoUninitialize();
@@ -78,7 +78,7 @@ internal sealed class NativeVideoWriter : IDisposable
         throw new RecordingException("No supported video processor with disabled frame-rate conversion");
     }
 
-    internal void Append(byte[] bgra,long sourceTicks,long durationTicks)
+    public void Append(byte[] bgra,long sourceTicks,long durationTicks)
     {
         CheckThread();
         if(terminal is not null)throw new RecordingException("Frame after encoder finalization");
@@ -106,7 +106,7 @@ internal sealed class NativeVideoWriter : IDisposable
         catch(Exception error) { failure??=error.Message;throw; }
     }
 
-    internal NativeWriterResult Finish()
+    public NativeWriterResult Finish()
     {
         CheckThread();
         if(terminal is not null)return terminal;
