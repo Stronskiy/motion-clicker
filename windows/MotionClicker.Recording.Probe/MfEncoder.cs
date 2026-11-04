@@ -27,6 +27,23 @@ static class MfEncoder
             using var input=MediaFactory.MFCreateMediaType();
             SetVideo(input,VideoFormatGuids.Rgb32);
             writer.SetInputMediaType(stream,input,null);
+            using(var extended=writer.QueryInterface<IMFSinkWriterEx>())
+            {
+                bool configured=false;
+                for(int i=0;i<8;i++)
+                {
+                    extended.GetTransformForStream(stream,i,out var category,out var transform);
+                    using(transform)
+                    {
+                        Console.WriteLine($"MF transform index={i}; category={category}");
+                        if(category!=TransformCategoryGuids.VideoProcessor)continue;
+                        using var transformAttributes=transform.GetAttributes();
+                        transformAttributes.Set(MediaAttributeKeys.XvpDisableFrcGuid,1u);
+                        configured=true;break;
+                    }
+                }
+                if(!configured)throw new Exception("Could not disable native video processor frame-rate conversion");
+            }
             writer.BeginWriting();
             byte[] bytes=new byte[pixels.Length];
             using(var reader=DataReader.FromBuffer(pixels))reader.ReadBytes(bytes);
