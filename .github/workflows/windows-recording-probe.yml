@@ -1,0 +1,36 @@
+name: Windows recording synthetic probe
+on:
+  push:
+    branches: [feat/windows-recording]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-native:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: windows/global.json
+      - name: Bootstrap pinned probe dependency lock (initial resolution only)
+        run: |
+          dotnet restore MotionClicker.Recording.Probe/MotionClicker.Recording.Probe.csproj | Tee-Object probe-restore.log
+          exit $LASTEXITCODE
+      - name: Generated device, surface, H264 and native readback (no screen or input)
+        run: |
+          dotnet run --project MotionClicker.Recording.Probe -c Release --no-restore | Tee-Object probe-native.log
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-recording-probe-evidence
+          path: |
+            windows/probe-*.log
+            windows/MotionClicker.Recording.Probe/packages.lock.json
