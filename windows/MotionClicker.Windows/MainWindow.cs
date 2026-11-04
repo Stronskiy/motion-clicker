@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Automation;
 using MotionClicker.Core;
 using MotionClicker.Core.Runtime;
+using MotionClicker.Windows.RecordingUI;
 using global::Windows.Storage.Pickers;
 using global::Windows.Graphics;
 using Point=MotionClicker.Core.Point;

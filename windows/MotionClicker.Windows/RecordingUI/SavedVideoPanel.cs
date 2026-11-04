@@ -65,10 +65,10 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
         latest=new(generation,currentMedia,value,autoPlay);if(!working)_=ProcessAsync();
     }
     private async Task ProcessAsync() {
-        working=true;
+        working=true;long activeGeneration=generation;
         try {
             while(latest is Query query&&!disposed) {
-                latest=null;
+                latest=null;activeGeneration=query.Generation;
                 var inspected=await gaps.WindowAsync(query.Media.MonitorSlotId,query.SourceUs,closing.Token);
                 if(query.Generation!=generation)continue;
                 window=inspected;
@@ -99,7 +99,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
                 if(query.Play)native.Play();
             }
         } catch(OperationCanceledException) { }
-        catch(Exception error) { if(!disposed)Mask("Complete source inspection unavailable. Video is hidden: "+error.Message); }
+        catch(Exception error) { if(!disposed&&activeGeneration==generation)Mask("Complete source inspection unavailable. Video is hidden: "+error.Message); }
         finally {working=false;if(latest is not null&&!disposed)_=ProcessAsync();}
     }
     public void PollPosition() {
@@ -108,7 +108,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
         if(window is null||!window.Contains(currentMedia.MonitorSlotId,value)){SetPosition(value);Mask("End of the inspected interval · seek to inspect another time");return;}
         SetPosition(value);
     }
-    public void StopPlayback(){player?.Pause();}
+    public void StopPlayback(){generation++;latest=null;player?.Pause();}
     private void ReleasePlayer(){surface.SetMediaPlayer(null);if(player is not null){player.Source=null;player.Dispose();player=null;}source?.Dispose();source=null;}
     public void Dispose(){if(disposed)return;disposed=true;generation++;latest=null;closing.Cancel();ReleasePlayer();}
 }

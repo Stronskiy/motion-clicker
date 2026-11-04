@@ -9,7 +9,7 @@ public static class NativeVideoInspector {
     [DllImport("ole32.dll")] private static extern void CoUninitialize();
     public static Task<NativeVideoEvidence> InspectAsync(string path,long frameCount,long durationUs,int pixelWidth,int pixelHeight,CancellationToken cancellation=default)=>Task.Run(()=>Inspect(path,frameCount,durationUs,pixelWidth,pixelHeight,cancellation),cancellation);
     private static NativeVideoEvidence Inspect(string path,long count,long duration,int width,int height,CancellationToken token) {
-        if(count<=0||duration<=0||duration>long.MaxValue/10||width<=0||height<=0)throw new RecordingException("Unsupported native media metadata limits");
+        if(count<=0||duration<=0||duration>long.MaxValue/10||width<=0||height<=0||width%2!=0||height%2!=0||(long)width*height>33_177_600)throw new RecordingException("Unsupported native media metadata limits");
         if((File.GetAttributes(path)&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)throw new RecordingException("Media must be an ordinary file");
         using var immutable=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
         Marshal.ThrowExceptionForHR(CoInitializeEx(0,0));var started=false;
