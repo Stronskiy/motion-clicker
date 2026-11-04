@@ -8,6 +8,8 @@ let package = Package(
                .library(name: "MotionClickerMacRecording", targets: ["MotionClickerMacRecording"]),
                .executable(name: "MotionClicker", targets: ["MotionClickerApp"])],
     targets: [
+        .target(name: "MotionClickerFixtureSupport"),
+        .testTarget(name: "MotionClickerFixtureTests", dependencies: ["MotionClickerFixtureSupport"]),
         .target(name: "MotionClickerCore"),
         .target(name: "MotionClickerRuntime", dependencies: ["MotionClickerCore"]),
         .target(name: "MotionClickerRecording", dependencies: ["MotionClickerCore", "MotionClickerRuntime"]),
