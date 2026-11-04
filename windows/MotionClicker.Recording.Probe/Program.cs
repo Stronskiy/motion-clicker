@@ -82,6 +82,7 @@ static class Probe
         var profile=MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p);
         profile.Audio=null;
         profile.Video.Width=64;profile.Video.Height=64;profile.Video.Bitrate=1_000_000;
+        profile.Video.ProfileId=H264ProfileIds.Baseline;
         profile.Video.FrameRate.Numerator=30;profile.Video.FrameRate.Denominator=1;
         var folder=await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(path)!);
         var file=await folder.CreateFileAsync(Path.GetFileName(path),CreationCollisionOption.FailIfExists);
@@ -101,12 +102,18 @@ static class Probe
             using var reader=MediaFactory.MFCreateSourceReaderFromURL(path,null);
             using var native=reader.GetNativeMediaType(SourceReaderIndex.FirstVideoStream,0);
             var subtype=native.GetGUID(MediaTypeAttributeKeys.Subtype);
+            if(subtype!=new Guid("34363248-0000-0010-8000-00aa00389b71"))throw new Exception("Not native H264");
             Console.WriteLine($"READ subtype={subtype}");
+            bool audioAbsent=false;
+            try { using var audio=reader.GetNativeMediaType(SourceReaderIndex.FirstAudioStream,0); }
+            catch(SharpGen.Runtime.SharpGenException ex) when(ex.ResultCode.Code==unchecked((int)0xC00D36B3)) { audioAbsent=true; }
+            if(!audioAbsent)throw new Exception("Unexpected audio stream");
             var stamps=new List<long>();
+            long end=0;
             while(true)
             {
                 using var sample=reader.ReadSample(SourceReaderIndex.FirstVideoStream,SourceReaderControlFlag.None,out _,out var flags,out var pts);
-                if(sample!=null) stamps.Add(pts);
+                if(sample!=null) { stamps.Add(pts);end=Math.Max(end,pts+sample.SampleDuration); }
                 if((flags&SourceReaderFlag.EndOfStream)!=0) break;
                 if(stamps.Count>expected+10)throw new Exception("Unexpected extra coded frames");
             }
@@ -114,7 +121,9 @@ static class Probe
             Console.WriteLine($"READ count={stamps.Count}; PTS100ns=[{string.Join(',',stamps)}]");
             if(stamps.Count!=expected || stamps[0]!=0) throw new Exception("Coded frame count/origin differs from source");
             for(int i=0;i<expected;i++) if(Math.Abs(stamps[i]-(long)i*10_000_000/30)>10)throw new Exception("Coded PTS changed");
-            Console.WriteLine($"PASS native H264 readback {expected} frames");
+            Console.WriteLine($"READ coded end100ns={end}; no audio");
+            if(Math.Abs(end-(long)expected*10_000_000/30)>10)throw new Exception("Coded duration changed");
+            Console.WriteLine($"PASS native H264 readback {expected} frames, PTS, coded duration, no audio");
         }
         finally { MediaFactory.MFShutdown().CheckError(); }
     }
