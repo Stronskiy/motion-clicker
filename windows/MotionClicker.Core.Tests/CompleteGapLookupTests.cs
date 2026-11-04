@@ -16,8 +16,8 @@ public sealed class CompleteGapLookupTests : IDisposable {
         var clear=await lookup.WindowAsync("left",1379);Assert.Null(clear.Kind);Assert.Equal(1380,clear.EndUs);
         Assert.Equal(100,(await lookup.WindowAsync("left",0)).EndUs);
         Assert.Null((await lookup.WindowAsync("right",1385)).Kind);Assert.Equal(GapKind.SourceFailure,(await lookup.WindowAsync("right",1501)).Kind);
-        Assert.False(SourcePlayback.TryRange(new("left","unused",50,1400),clear,0,out _,out _));
-        Assert.False(SourcePlayback.TryRange(new("left","unused",50,1400),clear,1450,out _,out _));
+        Assert.False(SourcePlayback.TryRange(new("left","unused",50,1400),new("left",0,2000,null),0,out _,out _));
+        Assert.False(SourcePlayback.TryRange(new("left","unused",50,1400),new("left",0,2000,null),1450,out _,out _));
         Assert.True(SourcePlayback.TryRange(new("left","unused",50,1400),clear,1379,out var pts,out var end));Assert.Equal(13290,pts.Ticks);Assert.Equal(13300,end.Ticks);
         Assert.Equal(before,File.ReadAllBytes(path));
     }

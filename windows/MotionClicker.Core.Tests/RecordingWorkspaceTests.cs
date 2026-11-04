@@ -66,6 +66,11 @@ public sealed class RecordingWorkspaceTests {
         await model.RecordAsync([Target],"progress.motionclicker",0);var first=model.PollProgressAsync();Assert.Null(await model.PollProgressAsync());
         Assert.Equal(1,services.ProgressRequests);services.Progress.SetResult("one snapshot");Assert.Equal("one snapshot",await first);await model.StopAsync();
     }
+    [Fact] public async Task PriorTakeProgressCannotBeDisplayedAsTheNewSourceGeneration() {
+        var services=new FakeServices { Progress=new(TaskCreationOptions.RunContinuationsAsynchronously) };var model=new RecordingWorkspace(services);
+        await model.RecordAsync([Target],"old.motionclicker",0);var oldProgress=model.PollProgressAsync();await model.StopAsync();
+        await model.RecordAsync([Target],"new.motionclicker",0);services.Progress.SetResult("stale old source");Assert.Null(await oldProgress);await model.StopAsync();
+    }
     private static async Task Until(Func<bool> condition) { using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5));while(!condition())await Task.Delay(1,deadline.Token); }
     internal static RecordingTarget Target { get; }=new(new("slot","Display",new(new(0,0),new(64,64),1,0)),new("native","Display",new(new(0,0),new(64,64),1,0),new(new(0,0),new(64,64))));
     private sealed class FakeServices : IRecordingWorkspaceServices {
