@@ -11,7 +11,7 @@ using RuntimeDisplay=MotionClicker.Core.Runtime.RuntimeDisplay;
 
 namespace MotionClicker.Windows;
 
-internal sealed class MainWindow : Window {
+internal sealed partial class MainWindow : Window {
     private readonly WinMonitors monitors=new();
     private readonly WinInput backend=new();
     private readonly EmergencyHotkey emergency;
@@ -62,7 +62,7 @@ internal sealed class MainWindow : Window {
     private Button openButton=null!;
     private readonly DispatcherTimer ticker=new() { Interval=TimeSpan.FromMilliseconds(100) };
     private readonly List<Window> identifiers=[];
-    private bool Active=>worker?.Runner.Snapshot.State is RunnerState.Running or RunnerState.Armed;
+    private bool Active=>operations.Busy;
     private sealed class PointRow {
         public Guid Id { get; }=Guid.NewGuid();
         public ComboBox Display { get; }=new() { Header="Display",HorizontalAlignment=HorizontalAlignment.Stretch };
@@ -85,7 +85,7 @@ internal sealed class MainWindow : Window {
         Content=navigation;
         navigation.MenuItems.Add(new NavigationViewItem { Content="Quick Click",Icon=new SymbolIcon(Symbol.TouchPointer),Tag="quick" });
         navigation.MenuItems.Add(new NavigationViewItem { Content="Project",Icon=new SymbolIcon(Symbol.Document),Tag="project" });
-        navigation.SelectionChanged+=(_,args)=> { projectMode=(args.SelectedItemContainer?.Tag as string)=="project"; RenderControls(); };
+        navigation.SelectionChanged+=(_,args)=> { projectMode=(args.SelectedItemContainer?.Tag as string)=="project";recordMode=(args.SelectedItemContainer?.Tag as string)=="record";savedVideo?.StopPlayback();RenderControls(); };
         var shell=new Grid(); shell.RowDefinitions.Add(new RowDefinition { Height=new GridLength(1,GridUnitType.Star) }); shell.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
         navigation.Content=shell;
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) }); workspace.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(290) });
@@ -105,7 +105,7 @@ internal sealed class MainWindow : Window {
         var transport=new StackPanel { Spacing=10,Padding=new Thickness(24,14,24,14) }; Grid.SetRow(transport,1); shell.Children.Add(transport);
         var actions=new Grid(); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) }); actions.ColumnDefinitions.Add(new ColumnDefinition { Width=GridLength.Auto });
         var summary=new StackPanel { Spacing=4 }; status.MaxWidth=420; summary.Children.Add(status); summary.Children.Add(stopShortcut); actions.Children.Add(summary);
-        previewButton=Action("Preview",DryRun); openButton=Action("Open Project…",async()=>await LoadProject());
+        previewButton=Action("Preview",DryRun); openButton=Action("Import project JSON…",async()=>await LoadProject());
         var buttons=Row(previewButton,start,pause,stop); Grid.SetColumn(buttons,1); actions.Children.Add(buttons); transport.Children.Add(actions);
         var details=new StackPanel { Spacing=5 }; details.Children.Add(metrics); details.Children.Add(new TextBlock { Text="Pause releases a hold. Run restarts from the beginning.",FontSize=12,Opacity=0.7 });
         transport.Children.Add(new Expander { Header="Run details",Content=details,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch });
@@ -115,17 +115,17 @@ internal sealed class MainWindow : Window {
         currentPosition.Checked+=(_,_)=>UpdateRelevantControls(); currentPosition.Unchecked+=(_,_)=>UpdateRelevantControls();
         limit.SelectionChanged+=(_,_)=>UpdateRelevantControls(); hotkey.SelectionChanged+=(_,_)=>UpdateShortcut();
         emergency=new(WinRT.Interop.WindowNative.GetWindowHandle(this),()=>Stop("Emergency, sleep, session or display change — restart required"));
-        RefreshDisplays(); navigation.SelectedItem=navigation.MenuItems[0];
+        InitializeRecording();RefreshDisplays(); navigation.SelectedItem=navigation.MenuItems[0];
         ticker.Tick+=(_,_)=>Poll(); ticker.Start();
         Closed+=(_,_)=> {
             if(sizingRoot!=null) sizingRoot.Changed-=OnSizingRootChanged;
             AppWindow.Changed-=OnAppWindowSizingChanged;
-            Stop("Application closing"); ticker.Stop(); emergency.Dispose(); backend.Dispose(); };
+            ticker.Stop();controlRegions.Update([]);emergency.Dispose();backend.Dispose(); };
         ApplyVisualQAArguments(); UpdateShortcut();
     }
-    private void OnSizingRootChanged(XamlRoot sender,XamlRootChangedEventArgs args)=>UpdateWindowSizing();
+    private void OnSizingRootChanged(XamlRoot sender,XamlRootChangedEventArgs args){UpdateWindowSizing();UpdateControlRegions();}
     private void OnAppWindowSizingChanged(Microsoft.UI.Windowing.AppWindow sender,Microsoft.UI.Windowing.AppWindowChangedEventArgs args) {
-        if(args.DidSizeChange||args.DidPresenterChange||args.DidPositionChange) UpdateWindowSizing();
+        if(args.DidSizeChange||args.DidPresenterChange||args.DidPositionChange) {UpdateWindowSizing();UpdateControlRegions();}
     }
     private void UpdateWindowSizing() {
         if(applyingWindowSize||sizingRoot==null||AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter presenter) return;
@@ -167,7 +167,7 @@ internal sealed class MainWindow : Window {
         }
         if(points.Count==0&&displays.Count>0) AddPoint();
         foreach(var p in points) { var old=(p.Display.SelectedItem as RuntimeDisplay)?.Id; SetPointDisplays(p); p.Display.SelectedItem=displays.FirstOrDefault(d=>d.Id==old); }
-        UpdateMap(); UpdatePointSummaries();
+        UpdateMap(); UpdatePointSummaries();RefreshRecordingDisplays();
     }
     private void SetPointDisplays(PointRow p) {
         p.Display.ItemsSource=displays;
@@ -208,16 +208,19 @@ internal sealed class MainWindow : Window {
     private void RenderControls() {
         foreach(var e in new FrameworkElement[]{displayChoices,pointList,pointEditor,monitorMap,button,doubleClick,currentPosition,interval,limit,count,duration,delay,hotkey,openButton}) if(e.Parent is Panel parent) parent.Children.Clear();
         controls.Children.Clear(); inspector.Children.Clear(); heading.Text=projectMode?"Project":"Quick Click";
-        if(projectMode) {
+        previewHost.Visibility=recordMode?Visibility.Collapsed:Visibility.Visible;
+        if(recordMode) {RenderRecordingControls();}
+        else if(projectMode) {
             controls.Children.Add(new TextBlock { Text=projectName,TextWrapping=TextWrapping.Wrap,Opacity=0.7 });
-            controls.Children.Add(openButton);
+            controls.Children.Add(openButton);if(openSaved.Parent is Panel oldOpenParent)oldOpenParent.Children.Remove(openSaved);controls.Children.Add(openSaved);
             var oldMapping=mapping.ToDictionary(p=>p.Key,p=>(p.Value.SelectedItem as RuntimeDisplay)?.Id); mapping.Clear();
             if(project!=null) foreach(var slot in project.MonitorSlots) {
                 var combo=new ComboBox { Header=$"{slot.Name} · {slot.Geometry.Size.Width:0.##} × {slot.Geometry.Size.Height:0.##} pt",PlaceholderText="Choose runtime display…",ItemsSource=displays,DisplayMemberPath="Name",HorizontalAlignment=HorizontalAlignment.Stretch };
                 if(oldMapping.TryGetValue(slot.Id,out var id)) combo.SelectedItem=displays.FirstOrDefault(d=>d.Id==id);
                 mapping.Add(slot.Id,combo); controls.Children.Add(combo);
             }
-            controls.Children.Add(new TextBlock { Text=project==null?"Open a domain project JSON to inspect its event plan. Video playback and editing are not available.":"Map each slot explicitly. Size, scale and rotation must match.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,24) });
+            if(savedVideo is not null){if(savedVideo.Parent is Panel oldVideoParent)oldVideoParent.Children.Remove(savedVideo);controls.Children.Add(savedVideo);}
+            controls.Children.Add(new TextBlock { Text=project==null?"Open a saved .motionclicker folder for original video, or import domain-only JSON for events.":"Map each slot explicitly. Size, scale and rotation must match.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,24) });
         } else {
             controls.Children.Add(Row(Section("Coordinate map · no screen capture"),Action("Identify",Identify),Action("Refresh",RefreshDisplays)));
             controls.Children.Add(monitorMap); controls.Children.Add(displayChoices);
@@ -227,7 +230,7 @@ internal sealed class MainWindow : Window {
             inspector.Children.Add(Section("Click")); inspector.Children.Add(button); inspector.Children.Add(doubleClick); inspector.Children.Add(currentPosition); inspector.Children.Add(interval); inspector.Children.Add(currentHint);
             inspector.Children.Add(Section("Repeat")); inspector.Children.Add(limit); inspector.Children.Add(count); inspector.Children.Add(duration); inspector.Children.Add(infiniteHint);
         }
-        inspector.Children.Add(Section("Start & stop")); inspector.Children.Add(delay); inspector.Children.Add(hotkey);
+        if(!recordMode){inspector.Children.Add(Section("Start & stop")); inspector.Children.Add(delay); inspector.Children.Add(hotkey);}
         UpdateRelevantControls();
     }
     private void UpdateRelevantControls() {
@@ -252,26 +255,27 @@ internal sealed class MainWindow : Window {
     }
     private async Task LoadProject() {
         try {
-            if(Active) return;
+            using var importLease=operations.TryEnter(AppOperation.Opening);if(importLease is null)return;Poll();
             var picker=new FileOpenPicker(); picker.FileTypeFilter.Add(".json");
             WinRT.Interop.InitializeWithWindow.Initialize(picker,WinRT.Interop.WindowNative.GetWindowHandle(this));
             var file=await picker.PickSingleFileAsync(); if(file==null) return;
-            if(new FileInfo(file.Path).Length>16777216) throw new InvalidOperationException("Project JSON exceeds 16 MB");
-            var loaded=ProjectJson.Deserialize<MotionProject>(await File.ReadAllTextAsync(file.Path)); var plan=ProgramCompiler.Project(loaded);
-            Stop("Project loaded"); project=loaded; projectName=file.Name;
+            if(closingRequested)return;
+            var loaded=await Task.Run(()=>{if(new FileInfo(file.Path).Length>16777216)throw new InvalidOperationException("Project JSON exceeds16MB");var value=ProjectJson.Deserialize<MotionProject>(File.ReadAllText(file.Path));_=ProgramCompiler.Project(value);return value;});var plan=ProgramCompiler.Project(loaded);
+            savedVideo?.Dispose();savedVideo=null;bundleInspection=null;project=loaded;projectName=file.Name;
             // A newly validated import always requires fresh, deliberate bindings.
             // RenderControls may retain choices only while re-rendering this project.
             mapping.Clear();
             projectMode=true; navigation.SelectedItem=navigation.MenuItems[1]; RenderControls();
             ShowPreview(plan); status.Text="Map every imported monitor explicitly before Start. Domain events only; video is unavailable.";
-        } catch(Exception error) { await Error($"Project cannot be loaded: {error.Message}"); }
+        } catch(Exception error) { await Error($"Project cannot be loaded: {error.Message}"); }finally{Poll();if(closingRequested)_=CompleteCloseAsync();}
     }
     private static long Microseconds(NumberBox box,double maxSeconds=604800) {
         if(!double.IsFinite(box.Value)||box.Value<0||box.Value>maxSeconds) throw new InvalidOperationException($"Invalid {box.Header}");
         return checked((long)(box.Value*1000000));
     }
     private RunProgram Program() {
-        if(projectMode) return project!=null?ProgramCompiler.Project(project):throw new InvalidOperationException("Load a project first");
+        if(recordMode)throw new InvalidOperationException("Choose Quick Click or a Project before Run");
+        if(projectMode){if(bundleInspection is not null&&!bundleInspection.CanRun)throw new InvalidOperationException("Partial or native-invalid recordings are inspection only");return project!=null?ProgramCompiler.Project(project):throw new InvalidOperationException("Load a project first");}
         var chosen=displays.Where(d=>selected.Any(s=>(string)s.Tag==d.Id&&s.IsChecked==true)).ToArray();
         if(chosen.Length==0) throw new InvalidOperationException("Select at least one display");
         var slots=chosen.Select(d=>new MonitorSlot(d.Id,d.Name,d.Geometry)).ToArray();
@@ -305,24 +309,43 @@ internal sealed class MainWindow : Window {
     private async void DryRun() { try { ShowPreview(Program()); status.Text="Dry run — first 200 events at most; zero input."; } catch(Exception e) { await Error(e.Message); } }
     private async void Start() {
         try {
-            if(Active) return;
-            var plan=Program(); var startDelay=Microseconds(delay,86400);
-            emergency.Register(hotkey.SelectedIndex==0?0x77u:0x78u); backend.BeginMonitoring();
+            if(runStarting||recording.Busy||closingRequested)return;
+            if(executionLease is null)executionLease=operations.TryEnter(RecordingUI.AppOperation.Execution)??throw new InvalidOperationException("Finish the current app operation before Run");
+            if(worker?.Snapshot.State is RunnerState.Running or RunnerState.Armed||worker?.Snapshot.OwnedButton is not null)return;
+            runStarting=true;savedVideo?.StopPlayback();var plan=Program();var startDelay=Microseconds(delay,86400);
+            emergency.Register(hotkey.SelectedIndex==0?0x77u:0x78u);
             var map=projectMode?mapping.ToDictionary(p=>p.Key,p=>(p.Value.SelectedItem as RuntimeDisplay)?.Id??""):plan.Slots.ToDictionary(s=>s.Id,s=>s.Id);
-            var runner=worker?.Runner??new SafeRunner(new MonotonicClock(),monitors,backend); runner.Start(plan,map,startDelay,true);
-            worker=new(runner); worker.Launch(); Poll();
-        } catch(Exception e) { emergency.Unregister(); await Error($"Start blocked: {e.Message}"); }
+            worker??=new(new SafeRunner(new MonotonicClock(),monitors,backend));Poll();
+            await worker.StartAsync(plan,map,startDelay,backend.BeginMonitoring);
+        } catch(Exception error) {status.Text="Start blocked: "+error.Message;}
+        finally {runStarting=false;Poll();}
     }
-    private void Stop(string reason="Stopped",bool paused=false) { worker?.Stop(reason,paused); Poll(); }
+    private async void Stop(string reason="Stopped",bool paused=false) {
+        if(recording.Busy) {
+            if(recording.Phase==RecordingUI.WorkspacePhase.CleanupBlocked)await recording.RetryStopAsync();
+            else await recording.StopAsync(reason=="Stopped"?null:reason);
+        }
+        if(worker is not null)await worker.StopAsync(reason,paused);Poll();
+        if(closingRequested)_=CompleteCloseAsync();
+    }
     private void Poll() {
-        var snapshot=worker?.Runner.Snapshot;
-        if(snapshot!=null) { status.Text=snapshot.Reason; metrics.Text=$"{snapshot.State} · dispatched attempts: {snapshot.Dispatched} · maximum scheduler lag: {snapshot.MaxLagUs/1000.0:0.1} ms"; }
-        controlsHost.IsEnabled=!Active; start.IsEnabled=!Active; pause.IsEnabled=Active; stop.IsEnabled=Active; previewButton.IsEnabled=!Active; openButton.IsEnabled=!Active;
-        foreach(var item in navigation.MenuItems.OfType<NavigationViewItem>()) item.IsEnabled=!Active;
-        if(!Active) emergency.Unregister();
+        var snapshot=worker?.Snapshot;
+        if(executionLease is not null&&!runStarting&&snapshot?.OwnedButton is null&&snapshot?.State is not (RunnerState.Running or RunnerState.Armed or RunnerState.Paused)) {executionLease.Dispose();executionLease=null;}
+        if(snapshot is not null&&executionLease is not null) {status.Text=snapshot.Reason;metrics.Text=$"{snapshot.State} · dispatched attempts: {snapshot.Dispatched} · maximum scheduler lag: {snapshot.MaxLagUs/1000.0:0.1}ms";}
+        if(recording.Busy||recordMode) {var state=recording.Snapshot;recordingStatus.Text=$"{state.Phase} · {state.Message}\n{state.Destination}\n{state.Recovery}";if(recording.Busy)status.Text=state.Message??state.Phase.ToString();}
+        retrySave.Visibility=recording.Phase==RecordingUI.WorkspacePhase.Failed&&recording.Recovery is not null?Visibility.Visible:Visibility.Collapsed;
+        controlsHost.IsEnabled=!Active&&!closingRequested;
+        start.IsEnabled=!recordMode&&!runStarting&&!recording.Busy&&!closingRequested&&(!Active||snapshot?.State==RunnerState.Paused)&&snapshot?.OwnedButton is null;
+        pause.IsEnabled=snapshot?.State is RunnerState.Armed or RunnerState.Running;
+        stop.IsEnabled=recording.Busy||executionLease is not null;stop.Content=snapshot?.OwnedButton is not null||recording.Phase==RecordingUI.WorkspacePhase.CleanupBlocked?"Retry Stop":"Stop";
+        previewButton.IsEnabled=!Active&&!recordMode&&!closingRequested;openButton.IsEnabled=openSaved.IsEnabled=!Active&&!closingRequested;
+        foreach(var item in navigation.MenuItems.OfType<NavigationViewItem>())item.IsEnabled=!Active&&!closingRequested;
+        if(!Active&&!runStarting)emergency.Unregister();
+        savedVideo?.PollPosition();if(recording.Phase==RecordingUI.WorkspacePhase.Recording)_=PollRecordingAsync();
     }
-    private async Task Error(string text) { status.Text=text; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
+    private async Task Error(string text) { status.Text=text;if(Active||closingRequested)return; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
     private async void Identify() {
+        if(Active)return;
         foreach(var old in identifiers) old.Close(); identifiers.Clear();
         foreach(var d in displays) {
             var window=new Window { Title="Identify Display",Content=new Border { Padding=new Thickness(24),Background=(Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],Child=new TextBlock { Text=d.Name,TextWrapping=TextWrapping.Wrap,FontSize=28 } } };

@@ -262,3 +262,17 @@ through the inspector before allowing Run. Partial sources and native failures
 remain inspectable, with failure text and no execution authorization. Open never
 constructs a capture writer. Pixel dimensions derive from frozen local size and
 scale; source file time stays independent of saved mediaTimeZeroUs.
+
+`RunWorker` now owns asynchronous Start/Stop/Pump execution and publishes a
+volatile immutable RunnerSnapshot. MainWindow never reads SafeRunner directly or
+waits for its dispatch/release lock. UI Stop/emergency/closing request cancellation
+then await worker acknowledgment. Paused retains the app lease. A Failed owned
+release retains the lease and hotkey, with Retry Stop reachable; start failure
+also consumes the ownership snapshot before releasing app exclusion.
+
+Native pickers use Windows.Storage.Pickers FileOpenPicker/FolderPicker with
+InitializeWithWindow(actual HWND), verified against the pinned SDK and Microsoft's
+[desktop UI-object guidance](https://learn.microsoft.com/windows/apps/develop/ui/display-ui-objects).
+AppWindow.Closing is canceled synchronously; cleanup runs asynchronously and a
+new Close is enqueued only after acknowledgment. There is no UI-thread Wait,
+Dispose under capture callbacks, unattended screen capture or injected QA input.

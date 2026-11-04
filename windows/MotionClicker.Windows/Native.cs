@@ -35,6 +35,9 @@ internal static class Native {
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] internal static extern bool EnumDisplaySettings(string device,int mode,ref DEVMODE value);
     [DllImport("shcore.dll")] internal static extern int GetScaleFactorForMonitor(nint monitor,out int scale);
     [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] internal static extern bool GetWindowRect(nint hwnd,out RECT rect);
+    [DllImport("user32.dll")] internal static extern bool IsWindowVisible(nint hwnd);
+    [DllImport("user32.dll")] internal static extern bool IsIconic(nint hwnd);
     [DllImport("user32.dll")] internal static extern bool GetCursorPos(out POINT point);
     [DllImport("user32.dll")] internal static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll",SetLastError=true)] internal static extern uint SendInput(uint count,INPUT[] inputs,int size);

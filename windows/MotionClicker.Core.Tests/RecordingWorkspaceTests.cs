@@ -43,6 +43,12 @@ public sealed class RecordingWorkspaceTests {
         var services=new FakeServices { StartFailure=true,Completed=false };var model=new RecordingWorkspace(services);
         await model.RecordAsync([Target],"source.motionclicker",0);Assert.Equal(WorkspacePhase.Partial,model.Phase);Assert.Contains("source",model.Message);Assert.Contains("save",services.Calls);
     }
+    [Fact] public async Task RetrySaveCommitsWithoutStartingAnotherTake() {
+        var services=new FakeServices { SaveFailure=true };var model=new RecordingWorkspace(services);
+        await model.RecordAsync([Target],"retry.motionclicker",0);await model.StopAsync();Assert.Equal(WorkspacePhase.Failed,model.Phase);
+        services.SaveFailure=false;await model.RetrySaveAsync();Assert.Equal(WorkspacePhase.Saved,model.Phase);
+        Assert.Equal(1,services.Calls.Count(c=>c=="start"));Assert.Equal(2,services.Calls.Count(c=>c=="save"));
+    }
     private static async Task Until(Func<bool> condition) { using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5));while(!condition())await Task.Delay(1,deadline.Token); }
     internal static RecordingTarget Target { get; }=new(new("slot","Display",new(new(0,0),new(64,64),1,0)),new("native","Display",new(new(0,0),new(64,64),1,0),new(new(0,0),new(64,64))));
     private sealed class FakeServices : IRecordingWorkspaceServices {

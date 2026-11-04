@@ -100,6 +100,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
         } catch(Exception error) { if(ReferenceEquals(current,take)&&Phase==WorkspacePhase.Recording)await StopAsync("Source progress failed: "+error.Message).ConfigureAwait(false);return null; }
         finally{Volatile.Write(ref polling,0);}
     }
+    public Task RetrySaveAsync()=>Task.FromException(new NotImplementedException("Explicit save retry not implemented"));
     public async Task RetryStopAsync() {
         lock(sync){if(Phase!=WorkspacePhase.CleanupBlocked)return;stopping=null;}
         await StopAsync("Retry native closure").ConfigureAwait(false);
