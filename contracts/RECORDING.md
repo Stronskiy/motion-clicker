@@ -8,8 +8,9 @@ No screen capture, encoding, input injection or UI is implemented here.
 
 The caller serializes every readiness/frame/pointer/stop/finalization and store
 call on one serial owner; native callback queues must marshal to that owner. These objects
-are not thread safe. Adapters must provide verified native source/host anchors;
-callback arrival time is never an anchor. All times are exact signed Int64 JSON
+are not thread safe. Video adapters must provide verified native source/host anchors;
+video callback arrival time is never an anchor. Pointer observation timing is
+explicitly defined below. All canonical times are exact signed Int64 JSON
 integers; all counts/sequence numbers are Int64 except event order (Int32).
 JSON uses the existing exact integer codec and case-sensitive camelCase enums;
 required fields have no wire defaults. Unknown fields are ignored. Optional
@@ -39,7 +40,7 @@ The EventJournal supplied to a new session must be fresh and empty.
 |---|---|
 | RecordingTarget | `slot: MonitorSlot`, `display: RuntimeDisplay` |
 | ClockAnchor | `sourceAnchorTicks: Int64`, `hostAnchorUs: Int64`, `ticksPerSecond: Int64` |
-| CapturedPointerEvent | `hostTimeUs: Int64`, `nativePosition: Point`, `kind: ActionKind`, `button?: MouseButton`, `deltaX?: Double`, `deltaY?: Double`, `isOwnInjected: Bool = false`, `isControl: Bool = false` |
+| CapturedPointerEvent | `hostTimeUs: Int64`, `nativePosition: Point`, `kind: ActionKind`, `button?: MouseButton`, `deltaX?: Double`, `deltaY?: Double`, `isOwnInjected: Bool = false`, `isControl: Bool = false`, `timing?: PointerTiming = nil` |
 | RawPointerRecord | `sequence: Int32`, `event: CapturedPointerEvent`, `timeUs: Int64`, `action?: RecordedAction`, `atomicGroupId?: String` |
 | RecordingState | `preparing`, `recording`, `finalizing`, `completed`, `interrupted`, `failed` |
 | GapKind | `leading`, `dropped`, `backpressure`, `sourceFailure`, `encoderFailure` |
@@ -47,7 +48,7 @@ The EventJournal supplied to a new session must be fresh and empty.
 | RecordingGap | `startUs: Int64`, `endUs: Int64`, `kind: GapKind`, `reason?: String` |
 | StreamManifest | `monitorSlotId: String`, `relativePath: String`, `clock: ClockAnchor`, `mediaTimeZeroUs?: Int64`, `encodedDurationUs: Int64`, `frameCount: Int64`, `gaps: [RecordingGap]`, `writerStatus: WriterStatus`, `gapCount: Int64`, `gapJournalPath: String`, `failureReason?: String` |
 | JournalGapRecord | `monitorSlotId: String`, `gap: RecordingGap` |
-| RecordingManifest | `manifestVersion: Int32`, `takeId: String`, `state: RecordingState`, `epochHostUs: Int64`, `durationUs: Int64`, `targets: [MonitorSlot]`, `streams: [StreamManifest]`, `rawEventCount: Int64`, `incompleteGroupIds: [String]`, `warnings: [String]`, `reason?: String` |
+| RecordingManifest | `manifestVersion: Int32`, `takeId: String`, `state: RecordingState`, `epochHostUs: Int64`, `durationUs: Int64`, `targets: [MonitorSlot]`, `streams: [StreamManifest]`, `rawEventCount: Int64`, `incompleteGroupIds: [String]`, `warnings: [String]`, `reason?: String`, `pointerTimingBasis?: PointerTimingBasis = nil` |
 | RecordingResult | `manifest: RecordingManifest`, `take: Take`, `events: [RecordedAction]` (on-demand projection, not wire storage) |
 | StoreRecovery | `stagingPath: String`, `mediaPath: String`, `manifestPath: String`, `mediaPublished: Bool`, `manifestPublished: Bool` (runtime diagnostic) |
 | StoreOperation | `append`, `flush`, `moveMedia`, `publishManifest` (fault-injection boundary) |
@@ -60,7 +61,7 @@ not cross-platform equality contracts.
 ## Session API
 
 Swift throws on fallible APIs; C# uses exceptions. Swift reference class
-`RecordingSession(takeId: String, targets: [RecordingTarget], journal: EventJournal)`
+`RecordingSession(takeId: String, targets: [RecordingTarget], journal: EventJournal, pointerTimingBasis: PointerTimingBasis? = nil)`
 (C#: `IEventJournal`) exposes read-only `state`, `result: RecordingManifest?`.
 Session freezes targets by value; C# copies the input array. Source order follows
 this snapshot. Each target must have distinct slot/display IDs, valid geometry,
@@ -189,3 +190,50 @@ part of mandatory publish. Explicit `project()` remains the opt-in allocation of
 an executable event array. Manifest previews/counts and gap journal are validated
 against each other before publication. All of this is synthetic source behavior,
 not a measured native-capture memory/storage acceptance claim.
+
+## Pointer observation timing revision (2026-11-04)
+
+Canonical pointer time may be the verified native host clock sampled at the FIRST
+executable hook entry, before classification, owner waits or I/O. It is observation
+time, not OS event creation/hardware time. Video remains source-PTS mapped. The
+physical <=50ms at30fps goal is unchanged and still requires controlled measurement.
+
+Exact optional recording-v1 additions (project schemaVersion1 is unchanged):
+
+- `RecordingManifest.pointerTimingBasis: PointerTimingBasis? = nil` is appended
+  after `reason` in the public Swift initializer/C# record constructor.
+- `CapturedPointerEvent.timing: PointerTiming? = nil` is appended after `isControl`.
+  Raw journal records retain this metadata inside `event`; `event.hostTimeUs` is
+  the exact canonical observation in microseconds. No duplicate host timestamp.
+- `PointerTimingBasis`: only `nativeHostObservation`.
+- `PointerHostClock`: `machAbsolute`, `queryPerformanceCounter`.
+- `PointerPacketClock`: `cgEventTimestamp`, `windowsLowLevelMouseTime`.
+- `PointerPacketUnits`: `nanoseconds`, `milliseconds`.
+- `PointerTiming(basis: PointerTimingBasis, hostClock: PointerHostClock,
+  packetClock: PointerPacketClock, packetUnits: PointerPacketUnits,
+  packetTimestamp: String, ownerDelayUs: Int64) throws` in Swift; same ordered
+  fields in C# constructor (validation by codec/session/store). All six required.
+  `packetTimestamp` is canonical unsigned decimal ASCII string: `0` or nonzero
+  first digit followed by digits, value0...18446744073709551615. No signs, spaces,
+  leading zeroes, numeric JSON, exponent, Double or signed truncation. Preserve
+  UInt64.max exactly. Only clock/unit triples (machAbsolute,cgEventTimestamp,
+  nanoseconds) and (queryPerformanceCounter,windowsLowLevelMouseTime,
+  milliseconds) are valid; latter stamp <=UInt32.max as native hook field.
+  `ownerDelayUs` is nonnegative exact Int64 elapsed host time from entry until
+  owner processing begins, not OS delivery/hardware latency.
+- Session initializer appends optional `pointerTimingBasis = nil/null`. Its
+  manifest copies it. Admission/publication/reopen require event metadata basis
+  equal to manifest/session basis (both absent for legacy), nonnegative observed
+  host time for the new basis, and valid metadata. Cross-record host/packet clock
+  triples must agree within a take. Unknown enums and malformed metadata reject.
+
+Absent/null new fields mean legacy canonical-host semantics with no verified
+original-pointer-origin claim. New readers preserve old action times verbatim;
+there is no migration/rebasing. New native recordings declare observation basis
+and include metadata on every admitted raw record. Legacy readers ignore optional
+fields and retain canonical action times, but cannot explain observation semantics;
+use upgraded readers for timing diagnostics. Unknown fields remain ignored.
+No public arbitrary source/host anchor override is added. The separate original
+packet-to-host mapping path still requires a verified anchor and rejects the
+unverified500ms-offset regression. Diagnostic packet clock origins never change
+canonical observation time or ordering.

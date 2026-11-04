@@ -3,11 +3,10 @@
 `MotionClickerMacRecording` is a macOS26+ Swift library consuming
 [RECORDING.md](RECORDING.md). It implements selected-display ScreenCaptureKit
 streams, H.264 MP4 encoding, and a listen-only pointer event tap. No app UI calls
-it yet. **Production preparation currently fails with `pointerClockUnverified`:**
-an authoritative CGEvent-to-mach source anchor has not been established. The
-components and synthetic pipeline exist, but recording is not enabled by an
-unverified clock hypothesis. This is not the both-platform Record/Save/Open
-acceptance milestone.
+it yet. Native pointer actions use first-hook-entry mach host observation time,
+with exact Quartz packet stamps retained as diagnostic data. This enables the
+native API without assuming an unverified Quartz-to-mach mapping. This is not
+the both-platform Record/Save/Open acceptance milestone.
 
 ## API for the future UI
 
@@ -16,8 +15,7 @@ let recorder = MacRecordingController(options: MacRecordingOptions(
     ownInjectedTag: 0x4d434c49434b, // existing MacInput.tag, supplied by caller
     isControl: classifyControlSample // caller supplies a fast @Sendable classifier
 ))
-// Current capability: MacRecordingController.pointerClockStatus == .unverified.
-// prepare throws .pointerClockUnverified before privacy preflight or storage.
+// MacRecordingController.pointerClockStatus == .nativeHostObservation.
 let prepared = try await recorder.prepare(targets: targets, root: bundleRoot, takeId: takeID)
 try await recorder.start() // deliberate user action; real capture starts here
 let progress = await recorder.snapshot()
@@ -27,12 +25,7 @@ let result = try await recorder.project() // optional whole-event projection
 ```
 
 The initializer is inert. `prepare(targets: [RecordingTarget], root: URL,
-takeId: String) async throws -> MacRecordingPreparation` first requires an
-internally verified pointer clock. No live verifier is available, so the public
-`pointerClockStatus` is `.unverified` and preparation throws the typed
-`.pointerClockUnverified` error before OS preflight/storage. There is no public
-Boolean, anchor, or unsafe override to bypass verification. Permission grants
-cannot fix this missing capability. Once a verified provider exists, it checks permission
+takeId: String) async throws -> MacRecordingPreparation` checks permission
 preflight, freezes exact selected display IDs/geometry/pixel sizes and creates
 owned staging/writers. It neither listens to input nor captures pixels nor
 requests permissions. Errors `.screenRecordingPermissionMissing` and
@@ -69,7 +62,8 @@ control regions. A down classified as control excludes its entire gesture up
 through the matching release, even outside that region. A recorded gesture
 crossing a control region retains its real release. Repeated/mismatched ownership
 fails visibly. Pre-epoch samples cannot change classification state. The immutable
-sample exposes source `timestampNs`, upper-left global logical `position`,
+sample exposes immutable `observationHostUs: Int64` and original diagnostic
+`timestampNs: UInt64`, upper-left global logical `position`,
 `kind`, `button`, pixel `deltaX`/`deltaY`, and `sourceTag`. Scroll signs match the
 project's existing MacInput convention (opposite CG wheel axes). No keys/text are
 subscribed; no events are posted. Unsupported extra buttons interrupt capture.
@@ -157,32 +151,30 @@ Primary installed macOS26.2 SDK evidence:
 Mach ticks are converted with UInt64 full-width rational arithmetic and checked
 Int64 results, never Double; the portable anchor is `(0,0,1000000)` over the
 converted absolute microseconds. All displays use the same host epoch.
-CGEvent's original nanoseconds are retained. Conversion now requires a verified
-`ClockAnchor` (nanosecond source scale) and uses the portable exact integer mapper.
-The one-second delivery-age check is supplemental only; it cannot authorize an
-anchor. A500ms wrong-domain offset within that window is rejected when no
-verified mapping exists. Tests supply internal literal fixture anchors known by
-construction; these are not native evidence and cannot enable the public path.
+The FIRST native tap callback statement samples `mach_absolute_time()`, before
+context/type/tag classification or owner handoff. Checked rational conversion
+produces `MacPointerSample.observationHostUs`; the owner and classifier carry it
+without resampling. `timestampNs` retains original CGEventTimestamp as UInt64,
+including0 and UInt64.max (diagnostic only). Owner entry minus observation time
+is recorded as `PointerTiming.ownerDelayUs`, never as OS/hardware latency.
 
-The [CGEventTimestamp documentation](https://developer.apple.com/documentation/coregraphics/cgeventtimestamp)
-establishes startup-relative nanoseconds but not an explicit mach-absolute
-mapping. [NSEvent.timestamp](https://developer.apple.com/documentation/appkit/nsevent/timestamp)
-links to awake system uptime, but does not prove CGEvent clock conversion.
-[Native event age](https://developer.apple.com/documentation/coregraphics/cgeventsource/secondssincelasteventtype(_:eventtype:))
-and [per-type counters](https://developer.apple.com/documentation/coregraphics/cgeventsource/counterforeventtype(_:eventtype:))
-identify the latest source age and WindowServer counts, respectively; they do
-not document an atomic identity/order relationship to the particular event in a
-tap callback. Stable count brackets alone cannot resolve coalescing, backlog,
-missed events, or pre/post-counter tap ordering. Subtracting an ambiguous latest
-age from delivery time is not a verified anchor. Both unposted constructor
-probes returned0 or were inconclusive and supply no proof.
+`public enum MacPointerClockStatus: Sendable` has cases `unverified` (reserved
+source-mapping capability) and `nativeHostObservation`; the controller's static
+read-only `pointerClockStatus` returns `.nativeHostObservation`. There is no public
+anchor/Boolean override. The separate internal packet-to-host conversion remains
+fail-closed without verified source mapping, including a500ms wrong-domain stamp.
+Observation capture does not invoke that conversion. Exact new portable wire and
+initializer contracts are in RECORDING.md; native takes declare
+`pointerTimingBasis: nativeHostObservation` and event timing metadata with
+`machAbsolute / cgEventTimestamp / nanoseconds` plus unsigned decimal packet stamp.
 
-To enable production, obtain authoritative source-domain evidence or implement a
-controlled verifier with a proven event identity/age pairing, explicit clock
-rate/origin/sleep semantics, bounded uncertainty and fail-closed ambiguity
-handling. Consent runtime validation then checks real pointer/video alignment;
-<=50ms remains an unmeasured physical goal. The current unsupported status is a
-remaining product capability, not a completed working-recording milestone.
+Timestamping before synchronous owner handoff protects this event from its own
+owner wait. The next callback may still arrive late because of OS delivery,
+coalescing, owner contention, or tap scheduling. No synthetic result establishes
+physical latency. Controlled ten-minute/two-physical-monitor normal/stressed-load
+measurements on named hardware against an independent reference remain mandatory;
+<=50ms is unchanged. Source-created CGEvent-to-mach mapping remains unverified and
+is not inferred from observation timing, source-age counters, or constructor probes.
 
 Sleep/wake/session-resign and display-change notifications interrupt capture.
 A500ms lifecycle poll checks permission revocation, exact topology and divergence
