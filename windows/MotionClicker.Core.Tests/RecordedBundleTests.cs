@@ -44,11 +44,11 @@ public sealed class RecordedBundleTests : IDisposable
         var(f,root,scratch)=Prepared();var manifestPath=Path.Combine(root,"takes","take","manifest.json");
         Rewrite(manifestPath,j=>{j["state"]="interrupted";if(hold){j["incompleteGroupIds"]=new JsonArray("hold");j["rawEventCount"]=1;}
             else{j["streams"]![1]!["writerStatus"]="failed";j["streams"]![1]!["failureReason"]="synthetic source failure";}});
-        if(hold)File.WriteAllText(Path.Combine(root,"takes","take","events.jsonl"),RecordingJson.Serialize(f.Raw[0])+"\n");
+        if(hold)File.WriteAllText(Path.Combine(root,"takes","take","events.jsonl"),RecordingJson.Serialize(f.Raw[0] with { Action=f.Raw[0].Action! with { Id="bundle-project" } })+"\n");
         var m=RecordingJson.Deserialize<RecordingManifest>(File.ReadAllText(manifestPath));
         var take=new Take("take",100,["left","right"],m.Streams.Where(s=>s.WriterStatus==WriterStatus.Succeeded).Select(s=>new TakeMedia(s.MonitorSlotId,s.RelativePath)).ToArray());
         var snapshot=RecordedBundleStore.SaveInitial(root,new(m,take,hold?[]:f.ExpectedProject.Events),scratch);
-        Assert.Equal(RecordedBundleAvailability.Partial,snapshot.Availability);Assert.Equal(hold?0:4,snapshot.Project.Events.Length);Assert.Equal(hold?2:1,snapshot.Media.Length);
+        Assert.Equal(RecordedBundleAvailability.Partial,snapshot.Availability);Assert.Equal(hold?0:4,snapshot.Project.Events.Length);Assert.Equal(hold?2:1,snapshot.Media.Length);Assert.Equal("bundle-project-1",snapshot.Project.Id);
         Assert.Equal(ProjectJson.Serialize(snapshot.Project),ProjectJson.Serialize(RecordedBundleStore.ColdOpen(root,scratch).Project));
     }
     [Theory][InlineData(BundleOperation.WriteProject)][InlineData(BundleOperation.FlushProject)][InlineData(BundleOperation.PublishProject)]

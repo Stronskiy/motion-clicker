@@ -76,7 +76,9 @@ final class RecordedBundleTests: XCTestCase {
                 }
             }
             if hold {
-                var bytes = try JSONEncoder().encode(f.raw[0]); bytes.append(10)
+                let r = f.raw[0], a = r.action!
+                let action = RecordedAction(id: "bundle-project",takeId: a.takeId,monitorSlotId: a.monitorSlotId,timeUs: a.timeUs,order: a.order,kind: a.kind,x: a.x,y: a.y,button: a.button,atomicGroupId: a.atomicGroupId)
+                var bytes = try JSONEncoder().encode(RawPointerRecord(sequence: r.sequence,event: r.event,timeUs: r.timeUs,action: action,atomicGroupId: r.atomicGroupId)); bytes.append(10)
                 try bytes.write(to: root.appendingPathComponent("takes/take/events.jsonl"))
             }
             let m = try JSONDecoder().decode(RecordingManifest.self,from: Data(contentsOf: manifestPath))
@@ -84,6 +86,7 @@ final class RecordedBundleTests: XCTestCase {
             let snapshot = try RecordedBundleStore.saveInitial(root: root,result: RecordingResult(manifest: m,take: take,events: hold ? [] : f.expectedProject.events),validationScratch: scratch)
             XCTAssertEqual(snapshot.availability,.partial); XCTAssertEqual(snapshot.project.events.count,hold ? 0 : 4)
             XCTAssertEqual(snapshot.media.count,hold ? 2 : 1)
+            XCTAssertEqual(snapshot.project.id,"bundle-project-1")
             XCTAssertEqual(try RecordedBundleStore.coldOpen(root: root,validationScratch: scratch),snapshot)
         }
     }
@@ -156,16 +159,15 @@ final class RecordedBundleTests: XCTestCase {
         XCTAssertThrowsError(try RecordedBundleStore.saveInitial(root: root,result: wrong,validationScratch: scratch))
         XCTAssertEqual(try treeBytes(root),prior)
         let entries = try RecordedBundleStore.recoveryEntries(root: root)
-        XCTAssertTrue(entries.contains(unknown)); XCTAssertTrue(entries.contains(root.appendingPathComponent("media/take")))
-        XCTAssertTrue(entries.contains(root.appendingPathComponent("takes/take")))
+        XCTAssertEqual(Set(entries.map { $0.resolvingSymlinksInPath().pathComponents }),Set([unknown,root.appendingPathComponent("media/take"),root.appendingPathComponent("takes/take")].map { $0.resolvingSymlinksInPath().pathComponents }))
         XCTAssertThrowsError(try RecordedBundleStore.coldOpen(root: root,validationScratch: scratch))
         _ = try save(f,root,scratch)
-        XCTAssertEqual(try RecordedBundleStore.recoveryEntries(root: root),[unknown])
+        XCTAssertEqual(try RecordedBundleStore.recoveryEntries(root: root).map(\.path),[unknown.resolvingSymlinksInPath().path])
     }
     func treeBytes(_ root: URL) throws -> [String: Data] {
         var result: [String: Data] = [:]
         for case let url as URL in FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])! {
-            if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true { result[String(url.path.dropFirst(root.path.count))] = try Data(contentsOf: url) }
+            if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true { result[url.resolvingSymlinksInPath().pathComponents.dropFirst(root.resolvingSymlinksInPath().pathComponents.count).joined(separator: "/")] = try Data(contentsOf: url) }
         }
         return result
     }
