@@ -21,7 +21,8 @@ public sealed class WindowsRecordingLifecycleTests
     private sealed class Platform : IWindowsRecordingPlatform
     {
         internal long Now=1_000_000;
-        public long NowUs=>Interlocked.Read(ref Now);
+        internal bool ClockFails;
+        public long NowUs=>ClockFails?throw new IOException("QPC unavailable"):Interlocked.Read(ref Now);
         internal readonly Source Video=new(),Hook=new();
         internal Action<WindowsVideoFrame>? Image;
         internal Action<WindowsPointerSample>? Sample;
@@ -215,6 +216,19 @@ public sealed class WindowsRecordingLifecycleTests
             Assert.False(recovery.ManifestPublished);Assert.True(Directory.Exists(recovery.StagingPath));
         }
         finally{release.Set();}
+    }
+    [Fact] public async Task StopClockFailureStillStopsNativeSourcesAndPreservesStaging()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        f.Platform.ClockFails=true;
+        try
+        {
+            await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StopAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.Equal(1,f.Platform.Video.Stops);Assert.Equal(1,f.Platform.Hook.Stops);
+            Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
+        }
+        finally{f.Platform.ClockFails=false;}
     }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
