@@ -57,7 +57,7 @@ public sealed class RecordingWorkspaceTests {
         private List<string> calls=>services.Calls;
         public async Task PrepareAsync(RecordingTarget[] targets,string destination,CancellationToken cancellation){Assert.Single(targets);calls.Add("prepare");if(services.Preparation is not null)await services.Preparation.Task;}
         public Task StartAsync(CancellationToken cancellation){calls.Add("start");if(services.StartFailure)throw new IOException("source failure");return Task.CompletedTask;}
-        public Task<bool> StopAsync(string? reason){calls.Add("stop:"+(reason??"complete"));return Task.FromResult(services.Completed);}
+        public Task<RecordingTakeStatus?> StopAsync(string? reason){calls.Add("stop:"+(reason??"complete"));return Task.FromResult<RecordingTakeStatus?>(calls.Contains("start")?new(services.Completed):null);}
         public Task SaveAsync(string destination,CancellationToken cancellation){calls.Add("save");if(services.SaveFailure)throw new IOException("disk full");return Task.CompletedTask;}
         public Task<string?> RecoveryAsync()=>Task.FromResult<string?>("recoverable staging");
         public Task<string> ProgressAsync()=>Task.FromResult("native progress");

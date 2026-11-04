@@ -233,3 +233,23 @@ verifies source readiness, offsets and a native endpoint independent of UI polli
 Candidate is MediaPlayer/MediaPlaybackItem with native DurationLimit, hosted by
 WinUI MediaPlayerElement. Source files remain read-only. Complete gapsFile lookup
 is authoritative; the first64 manifest gaps are only a validation preview.
+
+### Implemented orchestration decisions
+
+`RecordingTakeStatus?` distinguishes no epoch (null) from a published completed
+or partial result. `RecordingWorkspaceSnapshot` is immutable; the app polls it
+without UI/native-owner locks. One `AppOperationGate` lease spans countdown,
+source readiness, native finalization and project commit. An unacknowledged
+native Stop retains `CleanupBlocked` and its lease, with Retry Stop available;
+no disposal under live native work is attempted. `ControlRegions` copies physical
+rectangles and exposes a fast, allocation-free hook read. `RunnerSnapshot`
+includes nullable `OwnedButton`, acquired conservatively before dispatch and
+cleared only after successful owned release. Failed state alone is not idle.
+
+The generated probe on Windows26100 confirmed that frame-server MediaPlayer
+reaches native DurationLimit107ms after a seek to100ms, ending at exactly107ms
+without a UI timer. Default headless rendering opened but did not advance; that
+mode is not used as evidence. WinUI hosting will use MediaPlayerElement's native
+surface; the same MediaPlaybackItem DurationLimit constrains each inspected clear
+interval. System transport commands are disabled, so they cannot bypass the
+inspection controller. No known-gap auto-skip is permitted.
