@@ -52,17 +52,30 @@ static class Probe
         Directory.CreateDirectory(directory);
         try
         {
-            foreach(var count in new[]{30,1})
+            var cases = new (string Name,long[] Pts,long[] Durations)[] {
+                ("regular",Enumerable.Range(0,30).Select(i=>(long)i*10_000_000/30).ToArray(),Enumerable.Range(0,30).Select(i=>(long)(i+1)*10_000_000/30-(long)i*10_000_000/30).ToArray()),
+                ("single",[0],[333333]),
+                ("static-tail",[0],[20_000_000]),
+                ("vfr",[0,1_000_000,9_000_000],[1_000_000,8_000_000,1_000_000]),
+                ("late",[50_000_000,50_333_333],[333333,333333]),
+                ("gap",[0,40_000_000],[1_000_000,1_000_000])
+            };
+            List<string> failures=[];
+            foreach(var test in cases)
             {
-                var path=Path.Combine(directory,$"generated-{count}.mp4");
-                await Encode(path,pixels,count).WaitAsync(TimeSpan.FromSeconds(45));
-                Read(path,count);
+                var path=Path.Combine(directory,$"{test.Name}.mp4");
+                try {
+                    Console.WriteLine($"CASE {test.Name}; inputPTS100ns=[{string.Join(',',test.Pts)}]; inputDuration100ns=[{string.Join(',',test.Durations)}]");
+                    await Encode(path,pixels,test.Pts,test.Durations).WaitAsync(TimeSpan.FromSeconds(45));
+                    Read(path,test.Pts,test.Durations);
+                } catch(Exception error) { failures.Add(test.Name+": "+error);Console.WriteLine($"FAIL {test.Name}: {error.Message}"); }
             }
+            if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }
     }
 
-    private static async Task Encode(string path,IBuffer pixels,int count)
+    private static async Task Encode(string path,IBuffer pixels,long[] timestamps,long[] durations)
     {
         var properties=VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8,64,64);
         properties.FrameRate.Numerator=30; properties.FrameRate.Denominator=1;
@@ -71,9 +84,9 @@ static class Probe
         var index=0;
         source.SampleRequested+=(_,e)=>
         {
-            if(index==count) { e.Request.Sample=null;return; }
-            var pts=(long)index*10_000_000/30;
-            var end=(long)(index+1)*10_000_000/30;
+            if(index==timestamps.Length) { e.Request.Sample=null;return; }
+            var pts=timestamps[index]-timestamps[0];
+            var end=pts+durations[index];
             var sample=MediaStreamSample.CreateFromBuffer(pixels,TimeSpan.FromTicks(pts));
             sample.Duration=TimeSpan.FromTicks(end-pts);
             index++;
@@ -94,7 +107,7 @@ static class Probe
         Console.WriteLine($"ENCODE generated inputs={index}; bytes={output.Size}");
     }
 
-    private static void Read(string path,int expected)
+    private static void Read(string path,long[] timestamps,long[] durations)
     {
         MediaFactory.MFStartup().CheckError();
         try
@@ -108,21 +121,23 @@ static class Probe
             try { using var audio=reader.GetNativeMediaType(SourceReaderIndex.FirstAudioStream,0); }
             catch(SharpGen.Runtime.SharpGenException ex) when(ex.ResultCode.Code==unchecked((int)0xC00D36B3)) { audioAbsent=true; }
             if(!audioAbsent)throw new Exception("Unexpected audio stream");
+            var expected=timestamps.Length;
             var stamps=new List<long>();
+            var actualDurations=new List<long>();
             long end=0;
             while(true)
             {
                 using var sample=reader.ReadSample(SourceReaderIndex.FirstVideoStream,SourceReaderControlFlag.None,out _,out var flags,out var pts);
-                if(sample!=null) { stamps.Add(pts);end=Math.Max(end,pts+sample.SampleDuration); }
+                if(sample!=null) { stamps.Add(pts);actualDurations.Add(sample.SampleDuration);end=Math.Max(end,pts+sample.SampleDuration); }
                 if((flags&SourceReaderFlag.EndOfStream)!=0) break;
                 if(stamps.Count>expected+10)throw new Exception("Unexpected extra coded frames");
             }
             stamps.Sort();
-            Console.WriteLine($"READ count={stamps.Count}; PTS100ns=[{string.Join(',',stamps)}]");
+            Console.WriteLine($"READ count={stamps.Count}; PTS100ns=[{string.Join(',',stamps)}]; durations100ns=[{string.Join(',',actualDurations)}]; end100ns={end}; no audio");
             if(stamps.Count!=expected || stamps[0]!=0) throw new Exception("Coded frame count/origin differs from source");
-            for(int i=0;i<expected;i++) if(Math.Abs(stamps[i]-(long)i*10_000_000/30)>10)throw new Exception("Coded PTS changed");
-            Console.WriteLine($"READ coded end100ns={end}; no audio");
-            if(Math.Abs(end-(long)expected*10_000_000/30)>10)throw new Exception("Coded duration changed");
+            for(int i=0;i<expected;i++) if(Math.Abs(stamps[i]-(timestamps[i]-timestamps[0]))>10)throw new Exception("Coded PTS changed");
+            for(int i=0;i<expected;i++) if(Math.Abs(actualDurations[i]-durations[i])>10)throw new Exception("Coded sample duration changed");
+            if(Math.Abs(end-(timestamps[^1]-timestamps[0]+durations[^1]))>10)throw new Exception("Coded duration changed");
             Console.WriteLine($"PASS native H264 readback {expected} frames, PTS, coded duration, no audio");
         }
         finally { MediaFactory.MFShutdown().CheckError(); }
