@@ -42,6 +42,12 @@ internal sealed class NativeVideoWriter : IWindowsVideoEncoder
             stream=writer.AddStream(encoded);
             using var input=MediaFactory.MFCreateMediaType();
             ConfigureType(input,VideoFormatGuids.Rgb32,width,height);
+            // Owned D3D/SoftwareBitmap BGRA rows are contiguous and top-down.
+            // RGB system-memory defaults may be bottom-up unless explicitly set.
+            uint stride=checked((uint)width*4);
+            input.Set(MediaTypeAttributeKeys.DefaultStride,stride);
+            if(input.GetUInt32(MediaTypeAttributeKeys.DefaultStride)!=stride)
+                throw new RecordingException("Native RGB input refused positive top-down stride");
             writer.SetInputMediaType(stream,input,null);
             DisableFrameRateConversion(writer,stream);
             writer.BeginWriting();

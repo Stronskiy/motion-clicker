@@ -1,7 +1,8 @@
 # Windows recording third-party notices
 
 These packages are used by the native Windows encoder and its synthetic tests.
-The complete recording controller and source/hook lifecycle are not implemented yet.
+They also support the recording controller and native source/hook lifecycle;
+live recording and physical acceptance remain separate verification work.
 Exact resolved package versions and integrity hashes are in its packages.lock.json.
 SharpGen beta transitives are explicit; NuGet security auditing remains enabled.
 Windows SDK, .NET and CsWinRT components retain their Microsoft licenses.

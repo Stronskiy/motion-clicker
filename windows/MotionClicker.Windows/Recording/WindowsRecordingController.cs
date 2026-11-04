@@ -249,6 +249,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
                     stream.Timeline=new(epoch,stream.Encoder.Submit,(a,b,k,r)=>session.ReportGap(stream.Target.Slot.Id,a,b,k,r));
                 }
                 session!.EventTapReady();session.Begin(epoch);
+                foreach(var stream in streams)stream.Source!.BeginEpoch(epoch);
             }
         }
         if(starting is {Task.IsCompleted:false}&&epoch>=0&&streams.All(s=>s.Timeline!.HasImage)&&Volatile.Read(ref stopRequested)==0)

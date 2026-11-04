@@ -18,9 +18,14 @@ internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,
     private readonly ManualResetEventSlim stopSignal=new(false);
     private readonly ManualResetEventSlim callbacksChanged=new(false);
     private int started,stop,callbacks,copying;
+    private WindowsFrameCadence? cadence;
     public Task Ready=>ready.Task;
     public Task Closed=>closed.Task;
-    public void BeginEpoch(long epochHostUs) { }
+    public void BeginEpoch(long epochHostUs)
+    {
+        if(Interlocked.CompareExchange(ref cadence,new(epochHostUs),null) is not null)
+            throw new RecordingException("Capture epoch already established");
+    }
     public void Start()
     {
         if(Interlocked.Exchange(ref started,1)!=0)throw new RecordingException("Capture source already started");
@@ -46,6 +51,8 @@ internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,
             if(sourceTicks<0)throw new RecordingException("Negative WGC source timestamp");
             if(frame.ContentSize.Width!=target.Display.NativeBounds.Size.Width||frame.ContentSize.Height!=target.Display.NativeBounds.Size.Height)
                 throw new RecordingException("WGC source pixel size changed");
+            var selection=Volatile.Read(ref cadence);
+            if(selection is null||!selection.Select(sourceTicks))return; // Intentional sampling; not transport loss.
             if(Interlocked.CompareExchange(ref copying,1,0)!=0){drop(sourceTicks,"WGC owned-copy admission full");return;}
             try
             {
