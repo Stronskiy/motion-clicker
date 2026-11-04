@@ -72,6 +72,10 @@ static class Probe
                 using(var pixelReader=DataReader.FromBuffer(pixels))pixelReader.ReadBytes(bytes);
                 await Task.Run(()=>WriterChecks.Failures(directory,bytes)).WaitAsync(TimeSpan.FromSeconds(45));
             } catch(Exception error) { failures.Add("writer failures: "+error); }
+            try {
+                byte[] bytes=new byte[pixels.Length];using(var reader=DataReader.FromBuffer(pixels))reader.ReadBytes(bytes);
+                await ControllerChecks.Run(directory,bytes).WaitAsync(TimeSpan.FromSeconds(45));
+            } catch(Exception error) { failures.Add("controller: "+error); }
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }

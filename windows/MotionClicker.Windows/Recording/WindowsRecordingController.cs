@@ -15,6 +15,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         internal WindowsVideoFrame? Image;
         internal long LossTicks=long.MaxValue;
         internal string? LossReason;
+        internal string? SourceFailure;
         internal bool Terminal;
         internal int StopSignaled;
     }
@@ -26,8 +27,10 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private readonly AutoResetEvent wake=new(false);
     private readonly TaskCompletionSource disposed=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<WindowsRecordingCompletion?> stopped=new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly Timer safety;
-    private readonly object stopGate=new();
+    private readonly CancellationTokenSource safetyStop=new();
+    private readonly object commandGate=new();
+    private sealed record StopBoundary(long HostUs,long WallTicks);
+    private StopBoundary? stopBoundary;
     private Stream[] streams=[];
     private RecordingStore? store;
     private RecordingSession? session;
@@ -38,7 +41,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     private string? failure;
     private long epoch=-1,beginUs,stopUs,stopWallTicks;
     private long accepted,dropped;
-    private int startRequested,stopRequested,pointerStopSignaled,disposeRequested,ingress;
+    private int startRequested,stopRequested,pointerStopSignaled,disposeRequested,ingress,producersDrained;
     private bool prepared,timelinesStopped,encodersStopping,quarantined,exiting;
     private WindowsRecordingCompletion? completion;
 
@@ -46,13 +49,14 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(options);ArgumentNullException.ThrowIfNull(options.IsControl);
         this.platform=platform;pointerAdapter=new(options);
-        safety=new Timer(_=>SafetyTick(),null,100,100);
+        new Thread(()=>{while(!safetyStop.Token.WaitHandle.WaitOne(100))SafetyTick();})
+            {IsBackground=true,Name="Motion Clicker recording watchdog"}.Start();
         new Thread(Owner){IsBackground=true,Name="Motion Clicker recording owner"}.Start();
     }
     private Task<T> Command<T>(Func<T> action)
     {
         var result=new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if(Volatile.Read(ref disposeRequested)!=0||!commands.TryAdd(()=>
+        lock(commandGate)if(Volatile.Read(ref disposeRequested)!=0||!commands.TryAdd(()=>
         {
             try{result.TrySetResult(action());}catch(Exception error){result.TrySetException(error);}
         }))result.TrySetException(new RecordingException("Recording owner unavailable or command mailbox full"));
@@ -60,6 +64,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     }
     public async Task<WindowsRecordingPreparation> PrepareAsync(RecordingTarget[] targets,string root,string takeId,CancellationToken cancellation=default)
     {
+        var frozen=targets.ToArray();
         var task=await Command(()=>
         {
             if(preparation is not null||Volatile.Read(ref stopRequested)!=0)throw new RecordingException("Recorder is single-use");
@@ -67,7 +72,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
             try
             {
                 cancellation.ThrowIfCancellationRequested();
-                var frozen=targets.ToArray();var displays=platform.Validate(frozen);
+                var displays=platform.Validate(frozen);
                 if(displays.Length!=frozen.Length)throw new RecordingException("Incomplete frozen monitor mapping");
                 store=new(root,takeId);session=new(takeId,frozen,store,PointerTimingBasis.NativeHostObservation);
                 streams=frozen.Select(t=>new Stream(t,displays.Single(d=>d.MonitorSlotId==t.Slot.Id))).ToArray();
@@ -93,7 +98,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
             {
                 cancellation.ThrowIfCancellationRequested();
                 foreach(var stream in streams)stream.Source=platform.Capture(stream.Target,f=>Image(stream,f),
-                    (ticks,reason)=>Drop(stream,ticks,reason),Interrupt);
+                    (ticks,reason)=>Drop(stream,ticks,reason),reason=>{Interlocked.CompareExchange(ref stream.SourceFailure,reason,null);Interrupt(reason);});
                 pointer=platform.Pointer(Pointer,Interrupt);
                 if(Volatile.Read(ref stopRequested)!=0){RequestNativeStop();throw new RecordingException("Stopped during native setup");}
                 Volatile.Write(ref ingress,1);Volatile.Write(ref startRequested,1);
@@ -116,13 +121,13 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     });
     private void Image(Stream stream,WindowsVideoFrame frame)
     {
-        if(Volatile.Read(ref ingress)==0)return;
+        if(!AcceptIngress(frame.SourceTicks/10))return;
         if(Interlocked.CompareExchange(ref stream.Image,frame,null) is not null)Drop(stream,frame.SourceTicks,"Capture image mailbox full");
         wake.Set();
     }
     private void Drop(Stream stream,long ticks,string reason)
     {
-        if(Volatile.Read(ref ingress)==0)return;
+        if(!AcceptIngress(ticks/10))return;
         long previous;
         do{previous=Interlocked.Read(ref stream.LossTicks);if(ticks>=previous)break;}
         while(Interlocked.CompareExchange(ref stream.LossTicks,ticks,previous)!=previous);
@@ -130,22 +135,26 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     }
     private void Pointer(WindowsPointerSample sample)
     {
-        if(Volatile.Read(ref ingress)==0)return;
+        if(!AcceptIngress(sample.ObservationHostUs))return;
         if(!pointers.TryAdd(sample))Interrupt("Pointer mailbox overflow");wake.Set();
     }
     private void Interrupt(string reason)=>RequestStop(reason);
+    private bool AcceptIngress(long hostUs)
+    {
+        if(Volatile.Read(ref producersDrained)!=0||stopped.Task.IsCompleted)return false;
+        if(Volatile.Read(ref ingress)!=0)return true;
+        var boundary=Volatile.Read(ref stopBoundary);return boundary is not null&&hostUs<=boundary.HostUs&&Volatile.Read(ref startRequested)!=0;
+    }
     private void RequestStop(string? reason)
     {
+        if(stopped.Task.IsCompleted)return;
         if(reason is not null)Interlocked.CompareExchange(ref failure,reason,null);
-        lock(stopGate)
+        if(Interlocked.CompareExchange(ref stopBoundary,new(platform.NowUs,Environment.TickCount64),null) is null)
         {
-            if(stopRequested==0)
-            {
-                stopUs=platform.NowUs;stopWallTicks=Environment.TickCount64;Volatile.Write(ref ingress,0);
-                Volatile.Write(ref stopRequested,1);
-            }
+            var boundary=stopBoundary!;stopUs=boundary.HostUs;stopWallTicks=boundary.WallTicks;
+            Volatile.Write(ref ingress,0);Volatile.Write(ref stopRequested,1);
         }
-        RequestNativeStop();wake.Set();
+        wake.Set();
     }
     private void RequestNativeStop()
     {
@@ -162,8 +171,11 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     {
         try
         {
+            if(Volatile.Read(ref stopRequested)!=0){RequestNativeStop();return;}
             if(Volatile.Read(ref startRequested)!=0&&Volatile.Read(ref stopRequested)==0)
             {
+                if(streams.Any(s=>s.Source?.Closed.IsCompleted==true)||pointer?.Closed.IsCompleted==true)
+                {Interrupt("Required native source or hook thread exited");RequestNativeStop();return;}
                 pointer?.Probe(platform.NowUs);
                 if(starting is {Task.IsCompleted:false}&&platform.NowUs-Interlocked.Read(ref beginUs)>=DeadlineUs)
                     Interrupt("Recording initialization requires a genuine post-epoch image within 10 seconds");
@@ -190,7 +202,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         }
         finally
         {
-            safety.Dispose();prepareCancellation.Dispose();startCancellation.Dispose();store?.Dispose();disposed.TrySetResult();
+            safetyStop.Cancel();prepareCancellation.Dispose();startCancellation.Dispose();store?.Dispose();disposed.TrySetResult();
         }
     }
     private void Advance()
@@ -256,16 +268,20 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
             if(Environment.TickCount64-stopWallTicks>=DeadlineUs/1000)Quarantine("Native producer closure deadline exceeded");return;
         }
         if(streams.Any(s=>s.Source?.Closed.IsFaulted==true)||pointer?.Closed.IsFaulted==true)
-            Interlocked.CompareExchange(ref failure,"Native source closure failed",null);
+        {Quarantine("Native producer closure failed");return;}
         if(!timelinesStopped)
         {
             timelinesStopped=true;
+            Volatile.Write(ref producersDrained,1);
             try
             {
                 Drain();
                 if(epoch>=0)
                 {
-                    var stop=Math.Max(stopUs,epoch);session!.Stop(stop,Volatile.Read(ref failure));
+                    var stop=Math.Max(stopUs,epoch);
+                    foreach(var stream in streams)if(Volatile.Read(ref stream.SourceFailure) is string sourceFailure)
+                        session!.SourceFailed(stream.Target.Slot.Id,stop,sourceFailure);
+                    session!.Stop(stop,Volatile.Read(ref failure));
                     foreach(var stream in streams)
                     {
                         try{stream.Timeline!.Stop(checked(stop*10));}
@@ -310,7 +326,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     }
     public async ValueTask DisposeAsync()
     {
-        RequestStop("Recorder disposed");Interlocked.Exchange(ref disposeRequested,1);wake.Set();
+        RequestStop("Recorder disposed");lock(commandGate)Interlocked.Exchange(ref disposeRequested,1);wake.Set();
         try{await stopped.Task;}catch(RecordingException){/* Recoverable quarantine is never deleted. */}
         await disposed.Task;
     }
