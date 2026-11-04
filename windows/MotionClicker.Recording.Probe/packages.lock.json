@@ -58,6 +58,17 @@
         "type": "Transitive",
         "resolved": "2.1.0",
         "contentHash": "KK+SjNSuKdP+zbavekubi+vaeb1Jo4k87ZF6CMkVWjr6RjJwc8peVtmgzXXDIMy4ZC3ZISyk3llY3q65ISOkBQ=="
+      },
+      "motionclicker.core": {
+        "type": "Project"
+      },
+      "motionclicker.recording.windows": {
+        "type": "Project",
+        "dependencies": {
+          "MotionClicker.Core": "[1.0.0, )",
+          "Vortice.Direct3D11": "[3.8.3, )",
+          "Vortice.MediaFoundation": "[3.8.3, )"
+        }
       }
     }
   }
