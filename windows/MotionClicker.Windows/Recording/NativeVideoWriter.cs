@@ -130,7 +130,10 @@ internal sealed class NativeVideoWriter : IDisposable
         Exception? first=null;
         void Attempt(Action action) { try { action(); } catch(Exception error) { first??=error; } }
         Attempt(()=>writer?.Dispose());writer=null;
-        if(output is not null) { Attempt(()=>output.Close());Attempt(()=>output.Dispose());output=null; }
+        // Finalize + sink release closes its byte stream. Releasing our remaining COM
+        // reference follows the MF sink-writer lifetime contract; calling Close again
+        // on the finalized native file stream returned E_INVALIDARG on Windows26100.
+        if(output is not null) { Attempt(()=>output.Dispose());output=null; }
         if(mfStarted) { Attempt(()=>MediaFactory.MFShutdown().CheckError());mfStarted=false; }
         if(comStarted) { Attempt(CoUninitialize);comStarted=false; }
         if(first is not null)throw new RecordingException("Encoder resource closure failed: "+first.Message);

@@ -10,6 +10,8 @@ static class WriterChecks
         if(!result.Succeeded || result.FrameCount!=timestamps.Length || result.EncodedDurationTicks!=timestamps[^1]-timestamps[0]+durations[^1])
             throw new Exception($"Native writer metadata did not match accepted work: {result}");
         if(writer.Finish()!=result)throw new Exception("Writer finalization is not idempotent");
+        using var exclusive=File.Open(path,FileMode.Open,FileAccess.ReadWrite,FileShare.None);
+        if(exclusive.Length==0)throw new Exception("Finalized encoder has no media");
     }
 
     internal static void Failures(string directory,byte[] pixels)
