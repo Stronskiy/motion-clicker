@@ -16,7 +16,7 @@ struct SavedVideoView: View {
     private var unavailable: String? {
         guard bundle.mediaError == nil else { return "Source video did not pass native validation." }
         guard let media else { return "No successful video for this monitor." }
-        let time=Int64(sourceUs)
+        let time=SourcePlaybackTime.sourceUs(sourceUs)
         if time < media.mediaTimeZeroUs { return "No source image yet · first image at \(Double(media.mediaTimeZeroUs)/1_000_000) s" }
         if time >= media.mediaTimeZeroUs + media.encodedDurationUs { return "No source image after the valid video prefix." }
         if let gap=stream?.gaps.first(where: { time >= $0.startUs && time < $0.endUs }) { return "Known video gap: \(gap.kind.rawValue)" }
@@ -90,7 +90,7 @@ struct SavedVideoView: View {
     }
     private func seek() {
         guard let media else { return }
-        let pts=max(0,min(media.encodedDurationUs,Int64(sourceUs)-media.mediaTimeZeroUs))
+        let pts=SourcePlaybackTime.filePTS(sourceUs:SourcePlaybackTime.sourceUs(sourceUs),mediaOffsetUs:media.mediaTimeZeroUs,durationUs:media.encodedDurationUs)
         player.seek(to: CMTime(value: pts,timescale:1_000_000),toleranceBefore:.zero,toleranceAfter:.zero)
     }
 }

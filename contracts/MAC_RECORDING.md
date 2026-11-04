@@ -193,3 +193,42 @@ listen-only event timestamps, permissions/revocation, sleep/session/topology
 interruptions, physical multi-monitor synchronization, long-run memory/storage,
 installed-app behavior, UI save/reopen, and Windows capture remain consent/runtime
 acceptance work. No unattended capture is authorized by this document or tests.
+
+## Native app integration
+
+The macOS app exposes a distinct Record workspace. Select displays and a new
+`.motionclicker` destination, prepare without capture, then deliberately start a
+cancellable three-second countdown. Stop waits asynchronously for native closure,
+projects the published take and commits `project.json` through `saveInitial`.
+Saved state appears only after that commit. Save errors retain the result for an
+explicit retry and expose the recovery location. Closing, quitting, session loss
+and the emergency hotkey request interruption; no historical releases are added.
+One operation gate excludes recording from armed/running/paused execution and
+excludes project/target mutation while either operation owns resources.
+
+Open Recorded Bundle uses `coldOpen` and AVFoundation readback off the main
+thread; Import Domain JSON remains an explicitly separate operation. Value
+snapshots from the bundle store are compiler-checked Sendable. A completed source
+bundle still requires native video validation and explicit current-monitor
+mapping, followed by existing permission/topology/runtime checks before Run.
+Partial bundles and native codec failures remain inspectable and cannot run.
+
+Native video validation requires one playable video track, no audio/extra tracks,
+coded origin zero, exact manifest frame count, positive sample durations and
+contiguous coded timing with at most one microsecond integer-rounding tolerance.
+It compares the coded end to encodedDurationUs and reads every decoded image.
+AVKit's AVPlayerView plays the original file. Preview maps file PTS through the
+saved mediaTimeZeroUs; leading/trailing/no-media/known-gap intervals explicitly
+hide footage. Source video and journals are never modified by playback or Open.
+No preview path acquires an input backend or capture writer.
+
+AppKit window notifications refresh a lock-protected immutable value snapshot of
+visible app-window rectangles, converted using the primary display height into
+upper-left global logical coordinates. The native pointer classifier reads only
+that snapshot and never calls UI APIs. Progress polling is bounded to one in-flight
+request and supplies display information only, never capture timestamps.
+
+Generated native fixtures exercise encode/save/fresh open/decode/player readiness
+and offset seeking without screens or hooks. These source/generated tests do not
+verify real ScreenCaptureKit/pointer permissions, physical timing, multimonitor
+runtime behavior, or the Windows recording UI. Those acceptance gates remain open.

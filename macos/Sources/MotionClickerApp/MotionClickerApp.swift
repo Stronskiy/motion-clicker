@@ -21,6 +21,7 @@ struct ClickPoint: Identifiable {
     var recordSelected: Set<String> = []
     var bundle: InspectedBundle?
     var bundleRoot: URL?
+    var generatedInspection = false
     var recoveryEntries: [URL] = []
     var mode="Quick Click"
     var displays:[RuntimeDisplay]=[]
@@ -81,15 +82,25 @@ struct ClickPoint: Identifiable {
     func loadProject() {
         guard !active else { return }
         let panel=NSOpenPanel(); panel.allowedContentTypes=[.json]; panel.allowsMultipleSelection=false
-        guard panel.runModal() == .OK, let url=panel.url else { return }
-        do {
-            let values=try url.resourceValues(forKeys:[.fileSizeKey]); guard (values.fileSize ?? 0) <= 16_777_216 else { throw RuntimeFailure.unsafe("Project JSON exceeds 16 MB") }
-            let loaded=try JSONDecoder().decode(MotionProject.self,from:Data(contentsOf:url))
-            let program=try RunProgram.project(loaded)
-            bundle=nil; bundleRoot=nil
-            project=loaded; projectName=url.lastPathComponent; mapping=[:]; preview=PreviewRunner.events(program); mode="Project"
-            status="Domain-only JSON imported. Map every monitor explicitly before Run. No source video is associated."
-        } catch { self.error="Project cannot be loaded: \(error)" }
+        panel.title="Import domain-only JSON"
+        panel.begin { [weak self] response in
+            guard response == .OK, let url=panel.url, let self, self.operation.acquireOpen() else { return }
+            Task {
+                defer { self.operation.release() }
+                do {
+                    let loaded=try await Task.detached {
+                        let values=try url.resourceValues(forKeys:[.fileSizeKey])
+                        guard (values.fileSize ?? 0) <= 16_777_216 else { throw RuntimeFailure.unsafe("Project JSON exceeds 16 MB") }
+                        let project=try JSONDecoder().decode(MotionProject.self,from:Data(contentsOf:url))
+                        _=try RunProgram.project(project); return project
+                    }.value
+                    self.bundle=nil; self.bundleRoot=nil
+                    self.project=loaded; self.projectName=url.lastPathComponent; self.mapping=[:]
+                    self.preview=PreviewRunner.events(try RunProgram.project(loaded)); self.mode="Project"
+                    self.status="Domain-only JSON imported. Map every monitor explicitly before Run. No source video is associated."
+                } catch { self.error="Project cannot be loaded: \(error)" }
+            }
+        }
     }
     func program() throws -> RunProgram {
         if mode == "Project" {
@@ -144,6 +155,7 @@ struct ClickPoint: Identifiable {
         } catch { operation.release(); emergency.unregister(); self.error="Start blocked: \(error)" }
     }
     func poll() {
+        if !operation.busy { emergency.unregister() }
         guard let report=worker?.runner.snapshot else { return }
         snapshot=RunnerSnapshotView(state:report.state,dispatched:report.dispatched,maxLagUs:report.maxLagUs)
         status=report.reason
@@ -197,7 +209,7 @@ struct ClickPoint: Identifiable {
     }
     private func install(_ saved: InspectedBundle, root: URL) {
         bundle=saved; bundleRoot=root; project=saved.snapshot.project; projectName=root.lastPathComponent; mapping=[:]
-        preview=PreviewRunner.events((try? RunProgram.project(saved.snapshot.project)) ?? RunProgram(steps:[],slots:[],periodUs:1,count:1,durationUs:nil))
+        preview=(try? RunProgram.project(saved.snapshot.project)).map { PreviewRunner.events($0) } ?? []
         mode="Project"
         status=saved.mediaError ?? (saved.executable ? "Source video verified. Map every monitor explicitly before Run." : "Partial recording — inspection only.")
     }
@@ -229,7 +241,7 @@ struct RunnerSnapshotView {
     @NSApplicationDelegateAdaptor(RecordingAppDelegate.self) private var appDelegate
     var body: some Scene {
         Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:720).onAppear { appDelegate.model=model } }
-            .defaultSize(width:1180,height:800).windowResizability(.contentMinSize).windowToolbarStyle(.unified)
+            .defaultLaunchBehavior(.presented).defaultSize(width:1180,height:800).windowResizability(.contentMinSize).windowToolbarStyle(.unified)
             .commands {
                 CommandGroup(replacing:.newItem) {
                     Button("Open Recorded Bundle…",action:model.openBundle).keyboardShortcut("o").disabled(model.active)

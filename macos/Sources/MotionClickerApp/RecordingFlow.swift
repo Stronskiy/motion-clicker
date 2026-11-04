@@ -58,6 +58,7 @@ struct CaptureProgress: Sendable {
     private(set) var accepted: Int64 = 0
     private(set) var dropped: Int64 = 0
     private(set) var remaining = 0
+    private(set) var availableBytes: Int64?
     private let gate: AppOperationGate
     private let makeCapture: () -> any RecordingCapture
     private let create: (URL) async throws -> Void
@@ -83,12 +84,16 @@ struct CaptureProgress: Sendable {
     func prepare(targets: [RecordingTarget], destination: URL) async {
         guard gate.acquireRecording() else { return }
         phase = .preparing; message = "Preparing selected displays; capture has not started."
-        self.destination = destination; saved = nil; recovery = nil; stopRequested = false; stopTask = nil
+        self.destination = destination; availableBytes = nil; saved = nil; recovery = nil; stopRequested = false; stopTask = nil
         accepted = 0; dropped = 0; pendingResult = nil
         let c = makeCapture(); capture = c
         // Retain the capture until preparation and asynchronous cleanup acknowledge closure.
         let task = Task { @MainActor in
             do {
+                availableBytes = await Task.detached {
+                    try? destination.deletingLastPathComponent().resourceValues(forKeys:[.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
+                }.value
+                if let availableBytes, availableBytes <= 0 { self.availableBytes = nil } // Capacity can be unavailable; actual writes remain authoritative.
                 try await create(destination)
                 if !stopRequested { try await c.prepare(targets: targets, root: destination, takeId: UUID().uuidString.lowercased()) }
                 if !stopRequested { phase = .ready; message = "Ready. Start countdown deliberately to begin recording." }

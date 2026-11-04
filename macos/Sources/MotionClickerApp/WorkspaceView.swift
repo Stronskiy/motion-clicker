@@ -142,7 +142,10 @@ struct WorkspaceView: View {
     private var projectWorkspace: some View {
         VStack(alignment:.leading,spacing:16) {
             if let project=model.project {
-                if let bundle=model.bundle { SavedVideoView(bundle:bundle).id(model.bundleRoot) }
+                if let bundle=model.bundle {
+                    if model.generatedInspection { Label("Generated video fixture · no screen capture",systemImage:"testtube.2").font(.callout).foregroundStyle(.secondary) }
+                    SavedVideoView(bundle:bundle).id(model.bundleRoot)
+                }
                 Label("Monitor mapping",systemImage:"display.2").font(.headline)
                 ForEach(project.monitorSlots,id:\.id) { slot in
                     VStack(alignment:.leading,spacing:6) {
@@ -189,7 +192,7 @@ struct WorkspaceView: View {
                 Spacer()
                 if model.mode == "Record" {
                     if model.recording.canStop {
-                        Button(role:.destructive) { model.stop() } label: { Label("Stop / Cancel",systemImage:"stop.fill") }.keyboardShortcut(".")
+                        Button(role:.destructive) { model.stop() } label: { Label(model.recording.phase == .recording || model.recording.phase == .starting ? "Stop Recording" : "Cancel Recording",systemImage:"stop.fill") }.keyboardShortcut(".")
                     }
                 } else {
                 Button(action:model.requestPreview) { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
@@ -228,6 +231,9 @@ struct WorkspaceView: View {
         let args=ProcessInfo.processInfo.arguments
         func value(_ key:String) -> String? { guard let i=args.firstIndex(of:key),args.indices.contains(i+1) else { return nil }; return args[i+1] }
         if let appearance=value("--appearance"),["light","dark"].contains(appearance) { NSApp.appearance=NSAppearance(named:appearance == "light" ? .aqua : .darkAqua) }
+        if let path=value("--generated-bundle") { model.generatedInspection=true; model.openBundle(URL(filePath:path)) }
+        if args.contains("--permission-example") { model.mode="Record"; model.error="Generated permission example: Screen Recording permission is missing. Enable Motion Clicker in System Settings → Privacy & Security → Screen & System Audio Recording. No permission check or capture was performed for this example." }
+        if args.contains("--open-error-example") { model.openBundle(URL(filePath:"/private/tmp/nonexistent-generated.motionclicker")) }
         if args.contains("--record-empty") { model.mode="Record" }
         if args.contains("--project-empty") { model.mode="Project" }
         let width=value("--window-width").flatMap(Double.init) ?? 1180

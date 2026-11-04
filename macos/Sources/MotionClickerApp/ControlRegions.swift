@@ -19,7 +19,7 @@ struct ControlWindowObserver: NSViewRepresentable {
         let view = ObserverView(); view.regions = regions; view.closeRequest = close; return view
     }
     func updateNSView(_ view: ObserverView, context: Context) { view.updateRegions() }
-    @MainActor final class ObserverView: NSView, NSWindowDelegate {
+    @MainActor final class ObserverView: NSView {
         var regions: ControlRegions?
         var closeRequest: (() -> Void)?
         private var observers: [NSObjectProtocol] = []
@@ -27,10 +27,12 @@ struct ControlWindowObserver: NSViewRepresentable {
             super.viewDidMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver); observers = []
             guard let window else { updateRegions(); return }
-            window.delegate = self
             for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didChangeScreenNotification] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.updateRegions() } })
             }
+            observers.append(NotificationCenter.default.addObserver(forName:NSWindow.willCloseNotification,object:window,queue:.main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.regions?.replace(appKitRects:[],primaryHeight:0); self?.closeRequest?() }
+            })
             updateRegions()
         }
         func updateRegions() {
@@ -39,7 +41,5 @@ struct ControlWindowObserver: NSViewRepresentable {
             // All visible app windows, including transient permission/error surfaces.
             regions?.replace(appKitRects: NSApp.windows.filter { $0.isVisible && !$0.isMiniaturized }.map(\.frame), primaryHeight: height)
         }
-        func windowShouldClose(_ sender: NSWindow) -> Bool { closeRequest?(); return true }
-        func windowWillClose(_ notification: Notification) { regions?.replace(appKitRects: [], primaryHeight: 0) }
     }
 }

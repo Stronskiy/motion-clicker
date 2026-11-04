@@ -54,6 +54,7 @@ struct RecordingStatus: View {
             }
             Text(flow.message).font(.callout).textSelection(.enabled)
             if let destination=flow.destination { Text(destination.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            if let bytes=flow.availableBytes { Text("Available when prepared: \(ByteCountFormatter.string(fromByteCount:bytes,countStyle:.file)). Recording stops visibly on storage failure.").font(.caption).foregroundStyle(.secondary) }
             if flow.accepted > 0 || flow.dropped > 0 {
                 Text("Accepted frames: \(flow.accepted) · dropped updates: \(flow.dropped)").font(.caption).monospacedDigit()
             }

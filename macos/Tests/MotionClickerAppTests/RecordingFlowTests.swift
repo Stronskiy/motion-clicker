@@ -91,6 +91,44 @@ import MotionClickerMacRecording
         for _ in 0..<1000 { if condition() { return }; await Task.yield() }
         XCTFail("Injected state did not settle")
     }
+    func testStartFailureAndRepeatedConcurrentStopRetainNativeClosureOwnership() async {
+        let c=FakeCapture(), gate=AppOperationGate()
+        c.startError=RecordingError(message:"source readiness failed")
+        c.holdStop=true
+        let flow=RecordingFlow(gate:gate,makeCapture:{c},create:{_ in},sleep:{_ in})
+        await flow.prepare(targets:[],destination:URL(filePath:"/tmp/test.motionclicker"))
+        flow.countdown(seconds:1)
+        await settle { c.stopWaiter != nil }
+        XCTAssertTrue(gate.busy); XCTAssertEqual(flow.phase,.finalizing)
+        let duplicate=Task { await flow.stop(reason:"Quit") }
+        await Task.yield()
+        XCTAssertEqual(c.calls.filter{$0 == "stop"}.count,1)
+        c.stopWaiter?.resume(); c.stopWaiter=nil
+        await duplicate.value
+        XCTAssertEqual(flow.phase,.failed)
+        XCTAssertTrue(flow.message.contains("source readiness failed"))
+        XCTAssertFalse(gate.busy)
+    }
+    func testBoundedProgressPollingAllowsOnlyOneInFlightNativeRead() async {
+        let c=FakeCapture(), gate=AppOperationGate()
+        let flow=RecordingFlow(gate:gate,makeCapture:{c},create:{_ in},sleep:{_ in})
+        await flow.prepare(targets:[],destination:URL(filePath:"/tmp/test.motionclicker"))
+        flow.countdown(seconds:1); await settle { flow.phase == .recording }
+        c.holdProgress=true
+        let first=Task { await flow.poll() }
+        await settle { c.progressWaiter != nil }
+        await flow.poll(); await flow.poll()
+        XCTAssertEqual(c.progressCalls,1)
+        c.progressWaiter?.resume(); c.progressWaiter=nil
+        await first.value; await flow.stop()
+    }
+    func testPlaybackTimeClampsLargeValuesAndPreservesLateOffsetWithoutPreviewInput() {
+        XCTAssertEqual(SourcePlaybackTime.sourceUs(Double(Int64.max)),Int64.max)
+        XCTAssertEqual(SourcePlaybackTime.sourceUs(.nan),0)
+        XCTAssertEqual(SourcePlaybackTime.filePTS(sourceUs:1_000_000,mediaOffsetUs:1_500_000,durationUs:2_500_000),0)
+        XCTAssertEqual(SourcePlaybackTime.filePTS(sourceUs:2_000_000,mediaOffsetUs:1_500_000,durationUs:2_500_000),500_000)
+        XCTAssertEqual(SourcePlaybackTime.filePTS(sourceUs:5_000_000,mediaOffsetUs:1_500_000,durationUs:2_500_000),2_500_000)
+    }
     func testControlRegionsConvertAppKitOriginAndReplaceSnapshot() {
         let regions = ControlRegions()
         regions.replace(appKitRects: [CGRect(x: -100, y: 100, width: 80, height: 40)], primaryHeight: 900)
@@ -107,13 +145,17 @@ import MotionClickerMacRecording
     var prepareWaiter: CheckedContinuation<Void,Never>?
     var stopWaiter: CheckedContinuation<Void,Never>?
     var prepareError: Error?
+    var startError: Error?
+    var holdProgress=false
+    var progressCalls=0
+    var progressWaiter: CheckedContinuation<Void,Never>?
     var result: RecordingResult?
     var progressState: RecordingState = .recording
     func prepare(targets: [RecordingTarget], root: URL, takeId: String) async throws { calls.append("prepare"); if holdPreparation { await withCheckedContinuation { prepareWaiter=$0 } }; if let prepareError { throw prepareError } }
-    func start() async throws { calls.append("start") }
+    func start() async throws { calls.append("start"); if let startError { throw startError } }
     func stop(reason: String?) async throws -> Bool { calls.append("stop"); if holdStop { await withCheckedContinuation { stopWaiter=$0 } }; return published }
     func project() async throws -> RecordingResult { guard let result else { throw RecordingError(message:"No result") }; return result }
-    func progress() async -> CaptureProgress { .init(state: progressState, accepted: 0, dropped: 0, reason: nil) }
+    func progress() async -> CaptureProgress { progressCalls += 1; if holdProgress { await withCheckedContinuation { progressWaiter=$0 } }; return .init(state: progressState, accepted: 0, dropped: 0, reason: nil) }
     func recovery() async -> StoreRecovery? { nil }
 }
 
