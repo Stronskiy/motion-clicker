@@ -8,7 +8,7 @@ static class WriterChecks
         for(int i=0;i<timestamps.Length;i++)writer.Append(pixels,timestamps[i],durations[i]);
         var result=writer.Finish();
         if(!result.Succeeded || result.FrameCount!=timestamps.Length || result.EncodedDurationTicks!=timestamps[^1]-timestamps[0]+durations[^1])
-            throw new Exception("Native writer metadata did not match accepted work");
+            throw new Exception($"Native writer metadata did not match accepted work: {result}");
         if(writer.Finish()!=result)throw new Exception("Writer finalization is not idempotent");
     }
 
