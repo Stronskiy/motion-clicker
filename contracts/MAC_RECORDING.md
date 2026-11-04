@@ -2,8 +2,8 @@
 
 `MotionClickerMacRecording` is a macOS26+ Swift library consuming
 [RECORDING.md](RECORDING.md). It implements selected-display ScreenCaptureKit
-streams, H.264 MP4 encoding, and a listen-only pointer event tap. No app UI calls
-it yet. Native pointer actions use first-hook-entry mach host observation time,
+streams, H.264 MP4 encoding, and a listen-only pointer event tap. The macOS app consumes it through
+the explicit Record workspace described below. Native pointer actions use first-hook-entry mach host observation time,
 with exact Quartz packet stamps retained as diagnostic data. This enables the
 native API without assuming an unverified Quartz-to-mach mapping. This is not
 the both-platform Record/Save/Open acceptance milestone.
@@ -193,3 +193,68 @@ listen-only event timestamps, permissions/revocation, sleep/session/topology
 interruptions, physical multi-monitor synchronization, long-run memory/storage,
 installed-app behavior, UI save/reopen, and Windows capture remain consent/runtime
 acceptance work. No unattended capture is authorized by this document or tests.
+
+## Native app integration
+
+The macOS app exposes a distinct Record workspace. Select displays and a new
+`.motionclicker` destination, prepare without capture, then deliberately start a
+cancellable three-second countdown. Stop waits asynchronously for native closure,
+projects the published take and commits `project.json` through `saveInitial`.
+Saved state appears only after that commit. Save errors retain the result for an
+explicit retry and expose the recovery location. Closing, quitting, session loss
+and the emergency hotkey request interruption; no historical releases are added.
+One operation gate excludes recording from armed/running/paused execution and
+excludes project/target mutation while either operation owns resources.
+
+Open Recorded Bundle uses `coldOpen` and AVFoundation readback off the main
+thread; Import Domain JSON remains an explicitly separate operation. Value
+snapshots from the bundle store are compiler-checked Sendable. A completed source
+bundle still requires native video validation and explicit current-monitor
+mapping, followed by existing permission/topology/runtime checks before Run.
+Partial bundles and native codec failures remain inspectable and cannot run.
+
+Native video validation requires one playable video track, no audio/extra tracks,
+coded origin zero, exact manifest frame count, positive sample durations and
+contiguous coded timing with at most one microsecond integer-rounding tolerance.
+It compares the coded end, native movie duration and track range to
+encodedDurationUs, requires track origin zero, and reads every decoded image.
+AVKit's AVPlayerView plays the original file. Preview maps file PTS through the
+saved mediaTimeZeroUs; leading/trailing/no-media/known-gap intervals explicitly
+hide footage. Source video and journals are never modified by playback or Open.
+No preview path acquires an input backend or capture writer.
+
+AppKit window notifications refresh a lock-protected immutable value snapshot of
+visible app-window rectangles, converted using the primary display height into
+upper-left global logical coordinates. The native pointer classifier reads only
+that snapshot and never calls UI APIs. Progress polling is bounded to one in-flight
+request and supplies display information only, never capture timestamps.
+
+Generated native fixtures exercise encode/save/fresh open/decode/player readiness
+and offset seeking without screens or hooks. These source/generated tests do not
+verify real ScreenCaptureKit/pointer permissions, physical timing, multimonitor
+runtime behavior, or the Windows recording UI. Those acceptance gates remain open.
+
+Run ownership is explicit: `RunnerSnapshot.hasUnreleasedInput` is sampled under
+SafeRunner's ownership lock and forwarded by `RunWorker.snapshot`. A failed Run
+with unresolved owned input retains the app gate as release-pending; Record,
+Open, target mutation and restart stay unavailable. Retry Stop and the emergency
+route retry only SafeRunner's owned release. The gate and hotkey are relinquished
+only after acknowledgment; an ordinary failed Run without ownership may release
+the gate. Start-error cleanup and quit follow the same ownership rule.
+
+Saved playback does not treat `StreamManifest.gaps` as complete: it is only the
+first64-record preview. An actor scans the validated snapshot's read-only
+`gapsFile` on demand, checks complete per-stream counts/ranges/preview prefix,
+and returns a monitor-specific clear or known-gap interval. Reads are64KiB with
+a1MiB record limit; memory retains per-monitor counts and at most one covering
+gap, not the full journal. Playback caches only the inspected interval and
+coalesces seeks/playback/monitor changes into one in-flight query. Until a window
+for the actual monitor/time is ready, or on lookup failure, video is explicitly
+hidden. Leading/trailing/no-media intervals remain explicit. This adds no wire
+fields, no writer or input backend, and never writes source evidence.
+Forward playback is additionally limited by AVPlayerItem.forwardPlaybackEndTime
+to the inspected clear interval's end, mapped through mediaTimeZeroUs. The native
+end notification pauses and masks that boundary; the display ticker is not used
+to enforce gap timing. Playback does not automatically skip known-loss intervals;
+the user may seek to another available source interval. This is read-only player
+configuration, not a media edit or source-time change.

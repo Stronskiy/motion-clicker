@@ -13,6 +13,7 @@ struct WorkspaceView: View {
         NavigationSplitView {
             List(selection:$model.mode) {
                 Label("Quick Click",systemImage:"cursorarrow.click").tag("Quick Click")
+                Label("Record",systemImage:"record.circle").tag("Record")
                 Label("Project",systemImage:"doc.text").tag("Project")
             }.navigationSplitViewColumnWidth(min:176,ideal:184,max:196).disabled(model.active)
         } detail: {
@@ -23,17 +24,19 @@ struct WorkspaceView: View {
                         ScrollView {
                             VStack(alignment:.leading,spacing:16) {
                                 header
-                                if model.mode == "Quick Click" { quickWorkspace } else { projectWorkspace }
-                                if geometry.size.width < 900 {
+                                if model.mode == "Quick Click" { quickWorkspace } else if model.mode == "Record" { RecordingWorkspace(model:model) } else { projectWorkspace }
+                                if geometry.size.width < 900, model.mode != "Record" {
                                     DisclosureGroup("Inspector") { inspectorContents.padding(.top,12) }
                                 }
-                                previewSection.id("event-preview")
+                                if model.mode != "Record" { previewSection.id("event-preview") }
                             }.padding(24).frame(maxWidth:.infinity,alignment:.leading)
                         }
                         .onChange(of:model.previewPresentationRequest) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
-                        .onChange(of:model.preview.count) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
+                        .onChange(of:model.preview.count) { _,_ in
+                            if model.bundle == nil { scroller.scrollTo("event-preview",anchor:.bottom) }
                         }
-                        if geometry.size.width >= 900 {
+                        }
+                        if geometry.size.width >= 900, model.mode != "Record" {
                             Divider()
                             ScrollView { inspectorContents.padding(20) }.frame(width:290)
                                 .background(.background.secondary)
@@ -45,9 +48,10 @@ struct WorkspaceView: View {
             }
         }
         .toolbar {
-            ToolbarItem { Button(action:model.loadProject) { Label("Open Project",systemImage:"folder") }.disabled(model.active).help("Open Project JSON") }
+            ToolbarItem { Button(action:model.openBundle) { Label("Open Recording",systemImage:"folder") }.disabled(model.active).help("Open recorded .motionclicker bundle") }
         }
-        .onReceive(ticker) { _ in model.poll() }
+        .background(ControlWindowObserver(regions:model.controlRegions, close:{model.stop("Window closed")}))
+        .onReceive(ticker) { _ in model.poll(); Task { await model.recording.poll() } }
         .onDisappear { model.stop("Window closed") }
         .onAppear {
             guard !configuredQA else { return }; configuredQA=true
@@ -63,11 +67,11 @@ struct WorkspaceView: View {
         HStack(alignment:.firstTextBaseline) {
             VStack(alignment:.leading,spacing:5) {
                 Text(model.mode).font(.system(size:26,weight:.semibold))
-                Text(model.mode == "Quick Click" ? "Choose your displays and arrange the click order." : model.projectName)
+                Text(model.mode == "Quick Click" ? "Choose your displays and arrange the click order." : model.mode == "Record" ? "Capture selected displays into a new local bundle." : model.projectName)
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength:8)
-            Text(model.snapshot.state.rawValue.capitalized).font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            Text(model.mode == "Record" ? model.recording.phase.rawValue.capitalized : model.snapshot.state.rawValue.capitalized).font(.callout.weight(.medium)).foregroundStyle(.secondary)
         }
     }
     private var quickWorkspace: some View {
@@ -140,6 +144,10 @@ struct WorkspaceView: View {
     private var projectWorkspace: some View {
         VStack(alignment:.leading,spacing:16) {
             if let project=model.project {
+                if let bundle=model.bundle {
+                    if model.generatedInspection { Label("Generated video fixture · no screen capture",systemImage:"testtube.2").font(.callout).foregroundStyle(.secondary) }
+                    SavedVideoView(bundle:bundle).id(model.bundleRoot)
+                }
                 Label("Monitor mapping",systemImage:"display.2").font(.headline)
                 ForEach(project.monitorSlots,id:\.id) { slot in
                     VStack(alignment:.leading,spacing:6) {
@@ -154,8 +162,11 @@ struct WorkspaceView: View {
                 Text("Map each slot explicitly. Size, scale and rotation must match.").font(.callout).foregroundStyle(.secondary)
             } else {
                 ContentUnavailableView { Label("Open a project",systemImage:"doc.text") } description: {
-                    Text("Inspect a domain project’s event plan and map its displays. Video playback and editing are not available.")
-                } actions: { Button("Open Project JSON…",action:model.loadProject) }
+                    Text("Open a recorded bundle to inspect source video and actions, or explicitly import a domain-only JSON plan.")
+                } actions: {
+                    Button("Open Recorded Bundle…",action:model.openBundle)
+                    Button("Import Domain JSON…",action:model.loadProject)
+                }
                 .frame(minHeight:300)
             }
         }.disabled(model.active)
@@ -181,14 +192,24 @@ struct WorkspaceView: View {
                     Text("Emergency stop: ⌃⌥⌘ \(model.hotkey == UInt32(kVK_F8) ? "F8" : "F9")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if model.runNeedsRelease {
+                    Button(role:.destructive) { model.stop("Retry Stop") } label: { Label("Retry Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
+                } else if model.mode == "Record" {
+                    if model.recording.canStop {
+                        Button(role:.destructive) { model.stop() } label: { Label(model.recording.phase == .recording || model.recording.phase == .starting ? "Stop Recording" : "Cancel Recording",systemImage:"stop.fill") }.keyboardShortcut(".")
+                    }
+                } else {
                 Button(action:model.requestPreview) { Label("Preview",systemImage:"play.rectangle") }.disabled(model.active)
-                if model.active {
+                if model.runActive {
                     Button { model.stop("Paused — Run restarts from the beginning",paused:true) } label: { Label("Pause",systemImage:"pause.fill") }
                     Button(role:.destructive) { model.stop() } label: { Label("Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
                 } else {
-                    Button(action:model.start) { Label("Run",systemImage:"play.fill") }.buttonStyle(.borderedProminent)
+                    Button(action:model.start) { Label(model.runPaused ? "Restart Run" : "Run",systemImage:"play.fill") }.buttonStyle(.borderedProminent).disabled(!model.canRun)
+                    if model.runPaused { Button("Stop",role:.destructive) { model.stop() } }
                 }
             }
+                }
+            if model.mode != "Record" {
             DisclosureGroup("Run details") {
                 VStack(alignment:.leading,spacing:5) {
                     Text(model.status)
@@ -196,9 +217,11 @@ struct WorkspaceView: View {
                     Text("Pause releases a hold. Run restarts from the beginning.")
                 }.font(.caption).foregroundStyle(.secondary).padding(.top,5)
             }.font(.caption)
+            }
         }.padding(.horizontal,24).padding(.vertical,14).background(.bar)
     }
     private var transportStatus: String {
+        if model.mode == "Record" { return model.recording.message }
         if model.status.hasPrefix("Dry run") { return "Preview ready · \(model.preview.count) events · no input" }
         if model.status.hasPrefix("Idle") { return "Ready to inspect or run" }
         return model.status
@@ -212,6 +235,10 @@ struct WorkspaceView: View {
         let args=ProcessInfo.processInfo.arguments
         func value(_ key:String) -> String? { guard let i=args.firstIndex(of:key),args.indices.contains(i+1) else { return nil }; return args[i+1] }
         if let appearance=value("--appearance"),["light","dark"].contains(appearance) { NSApp.appearance=NSAppearance(named:appearance == "light" ? .aqua : .darkAqua) }
+        if let path=value("--generated-bundle") { model.generatedInspection=true; model.openBundle(URL(filePath:path)) }
+        if args.contains("--permission-example") { model.mode="Record"; model.error="Generated permission example: Screen Recording permission is missing. Enable Motion Clicker in System Settings → Privacy & Security → Screen & System Audio Recording. No permission check or capture was performed for this example." }
+        if args.contains("--open-error-example") { model.openBundle(URL(filePath:"/private/tmp/nonexistent-generated.motionclicker")) }
+        if args.contains("--record-empty") { model.mode="Record" }
         if args.contains("--project-empty") { model.mode="Project" }
         let width=value("--window-width").flatMap(Double.init) ?? 1180
         let height=value("--window-height").flatMap(Double.init) ?? 800

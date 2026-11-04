@@ -100,10 +100,13 @@ final class ObservationTestClock: @unchecked Sendable {
     func testEarlyStaticSourceWithOnlyPreEpochImageFailsWithinInitializationDeadline() async throws {
         let (c, d, dir) = try setup(timeout: 0.02); defer { try? FileManager.default.removeItem(at: dir) }
         _ = try await c.prepare(targets: engineTargets(), root: dir, takeId: "take")
-        let start = Task { try await c.start() }; try await waitStarted(d)
+        // Allocate native synthetic resources before the intentionally short
+        // controller deadline; CVPixelBuffer initialization is not source readiness.
         var pixel: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_32BGRA, nil, &pixel), kCVReturnSuccess)
-        d.earlyStaticReady(try XCTUnwrap(pixel)); try await start.value
+        let preparedPixel = try XCTUnwrap(pixel)
+        let start = Task { try await c.start() }; try await waitStarted(d)
+        d.earlyStaticReady(preparedPixel); try await start.value
         try await Task.sleep(for: .milliseconds(60))
         let progress = await c.snapshot()
         // The initialization deadline must have fired; native drain/publication

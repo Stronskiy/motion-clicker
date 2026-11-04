@@ -3,14 +3,14 @@ import Darwin
 import MotionClickerCore
 
 public enum BundleOperation { case writeProject, flushProject, publishProject }
-public enum RecordedBundleAvailability { case requiresMonitorMapping, partial }
-public struct RecordedBundleMedia: Equatable {
+public enum RecordedBundleAvailability: Sendable { case requiresMonitorMapping, partial }
+public struct RecordedBundleMedia: Equatable, Sendable {
     public let monitorSlotId: String
     public let file: URL
     public let mediaTimeZeroUs: Int64
     public let encodedDurationUs: Int64
 }
-public struct RecordedBundleSnapshot: Equatable {
+public struct RecordedBundleSnapshot: Equatable, Sendable {
     public let project: MotionProject
     public let manifest: RecordingManifest
     public let manifestFile: URL
