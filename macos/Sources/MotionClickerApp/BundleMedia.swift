@@ -56,6 +56,13 @@ enum NativeMediaInspector {
         guard try await asset.load(.isPlayable) else { throw RecordingError(message: "Video is not playable") }
         let tracks = try await asset.load(.tracks)
         guard tracks.count == 1, let track = tracks.first, track.mediaType == .video else { throw RecordingError(message: "Expected exactly one video track and no audio") }
+        let movieDuration = try await asset.load(.duration)
+        let trackRange = try await track.load(.timeRange)
+        let movieUs = try us(movieDuration), trackStartUs = try us(trackRange.start), trackDurationUs = try us(trackRange.duration)
+        guard movieUs >= 0, trackDurationUs >= 0, trackStartUs == 0,
+              abs(movieUs - stream.encodedDurationUs) <= 1, abs(trackDurationUs - stream.encodedDurationUs) <= 1 else {
+            throw RecordingError(message:"Native timeline origin/count/duration differs from saved manifest")
+        }
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
         guard reader.canAdd(output) else { throw RecordingError(message: "Cannot read coded video") }

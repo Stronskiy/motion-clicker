@@ -4,7 +4,8 @@ This initial-save boundary consumes RECORDING.md and preserves project domain
 schemaVersion 1 unchanged. It implements one owned directory ending exactly in
 `.motionclicker`, one finalized published take, and one initial project commit.
 It is not the future editing/autosave/archive format. No capture or input starts
-on create/save/open. Native codec/metadata/playback verification is a later gate.
+on create/save/open. Native codec/metadata/playback verification belongs to each native client;
+the portable store alone does not establish that readiness.
 
 ## Layout and commit
 

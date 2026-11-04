@@ -66,6 +66,17 @@ struct ClickPoint: Identifiable {
         NotificationCenter.default.addObserver(forName:NSApplication.willTerminateNotification,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.stop("Application closing") } }
     }
     var active:Bool { operation.busy }
+    var canRun: Bool {
+        guard !active || runPaused, mode != "Record" else { return false }
+        guard mode == "Project" else { return true }
+        guard let project, bundle == nil || bundle?.executable == true else { return false }
+        let targets=project.monitorSlots.compactMap { mapping[$0.id] }
+        guard targets.count == project.monitorSlots.count, Set(targets).count == targets.count else { return false }
+        return project.monitorSlots.allSatisfy { slot in
+            guard let id=mapping[slot.id], let display=displays.first(where:{$0.id == id}) else { return false }
+            return slot.geometry.size == display.geometry.size && slot.geometry.scaleFactor == display.geometry.scaleFactor && slot.geometry.rotationDegrees == display.geometry.rotationDegrees
+        }
+    }
     var runActive: Bool { operation.operation == .run }
     var runPaused: Bool { operation.operation == .runPaused }
     func refreshDisplays() {
@@ -140,6 +151,8 @@ struct ClickPoint: Identifiable {
     }
     func start() {
         do {
+            guard !active || runPaused else { return }
+            guard canRun else { error="Run unavailable. Map each project monitor to a distinct current display with matching size, scale and rotation; partial or unverified source video is inspection only."; return }
             guard operation.acquireRun() else { return }
             guard delaySeconds.isFinite, delaySeconds >= 0, delaySeconds <= 86_400 else { throw RuntimeFailure.unsafe("Start delay must be 0…86400 seconds") }
             if mode == "Record" { throw RuntimeFailure.unsafe("Use the recording controls in this workspace") }
@@ -249,7 +262,7 @@ struct RunnerSnapshotView {
                 }
                 CommandMenu("Run") {
                     Button("Preview",action:model.requestPreview).keyboardShortcut("p",modifiers:[.command,.shift]).disabled(model.active)
-                    Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift]).disabled(model.active)
+                    Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift]).disabled(!model.canRun)
                     Button("Stop") { model.stop() }.keyboardShortcut(".")
                 }
             }

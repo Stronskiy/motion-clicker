@@ -174,12 +174,17 @@ struct CaptureProgress: Sendable {
     func retrySave() async {
         guard canRetrySave, let destination, let result=pendingResult, gate.acquireRecording() else { return }
         phase = .saving; message = "Retrying initial project save…"
-        defer { gate.release() }
-        do {
-            saved = try await save(destination,result)
-            pendingResult = nil; phase = .saved
-            message = saved?.snapshot.availability == .partial ? "Saved partial recording — inspection only." : "Recording saved. Map monitors explicitly before Run."
-        } catch { phase = .failed; message = Self.help(error) + " Source/staging retained; the project is not saved." }
+        // Quit/close/duplicate Stop must await this commit, just like the initial save.
+        let task=Task { @MainActor in
+            defer { gate.release() }
+            do {
+                saved = try await save(destination,result)
+                pendingResult = nil; phase = .saved
+                message = saved?.snapshot.availability == .partial ? "Saved partial recording — inspection only." : "Recording saved. Map monitors explicitly before Run."
+            } catch { phase = .failed; message = Self.help(error) + " Source/staging retained; the project is not saved." }
+        }
+        stopTask=task
+        await task.value
     }
     private static func help(_ error: Error) -> String {
         switch error as? MacRecordingFailure {

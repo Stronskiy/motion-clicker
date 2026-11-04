@@ -2,8 +2,8 @@
 
 `MotionClickerMacRecording` is a macOS26+ Swift library consuming
 [RECORDING.md](RECORDING.md). It implements selected-display ScreenCaptureKit
-streams, H.264 MP4 encoding, and a listen-only pointer event tap. No app UI calls
-it yet. Native pointer actions use first-hook-entry mach host observation time,
+streams, H.264 MP4 encoding, and a listen-only pointer event tap. The macOS app consumes it through
+the explicit Record workspace described below. Native pointer actions use first-hook-entry mach host observation time,
 with exact Quartz packet stamps retained as diagnostic data. This enables the
 native API without assuming an unverified Quartz-to-mach mapping. This is not
 the both-platform Record/Save/Open acceptance milestone.
@@ -216,7 +216,8 @@ Partial bundles and native codec failures remain inspectable and cannot run.
 Native video validation requires one playable video track, no audio/extra tracks,
 coded origin zero, exact manifest frame count, positive sample durations and
 contiguous coded timing with at most one microsecond integer-rounding tolerance.
-It compares the coded end to encodedDurationUs and reads every decoded image.
+It compares the coded end, native movie duration and track range to
+encodedDurationUs, requires track origin zero, and reads every decoded image.
 AVKit's AVPlayerView plays the original file. Preview maps file PTS through the
 saved mediaTimeZeroUs; leading/trailing/no-media/known-gap intervals explicitly
 hide footage. Source video and journals are never modified by playback or Open.

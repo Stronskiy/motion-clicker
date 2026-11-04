@@ -129,6 +129,47 @@ import MotionClickerMacRecording
         XCTAssertEqual(SourcePlaybackTime.filePTS(sourceUs:2_000_000,mediaOffsetUs:1_500_000,durationUs:2_500_000),500_000)
         XCTAssertEqual(SourcePlaybackTime.filePTS(sourceUs:5_000_000,mediaOffsetUs:1_500_000,durationUs:2_500_000),2_500_000)
     }
+    func testRecordedProjectRunAvailabilityRequiresExplicitDistinctMatchingCurrentMappings() throws {
+        let fixture=try FlowFixture.load(), model=ClickerModel()
+        model.mode="Project"; model.project=fixture.expectedProject; model.bundle=fixture.inspected
+        model.displays=fixture.expectedProject.monitorSlots.map { slot in
+            .init(id:slot.id,name:slot.name,geometry:slot.geometry,nativeBounds:.init(origin:slot.geometry.origin,size:slot.geometry.size))
+        }
+        XCTAssertFalse(model.canRun)
+        model.mapping=["left":"left"]
+        XCTAssertFalse(model.canRun)
+        model.mapping=["left":"left","right":"left"]
+        XCTAssertFalse(model.canRun)
+        model.mapping=["left":"left","right":"right"]
+        XCTAssertTrue(model.canRun)
+        model.bundle=fixture.partial
+        XCTAssertFalse(model.canRun)
+    }
+    func testQuitDuringSaveRetryWaitsForSaveCommit() async throws {
+        let c=FakeCapture(), gate=AppOperationGate(), fixture=try FlowFixture.load()
+        c.result=fixture.result; c.published=true
+        var calls=0
+        var saving: CheckedContinuation<Void,Never>?
+        var quitAcknowledged=false
+        let flow=RecordingFlow(gate:gate,makeCapture:{c},create:{_ in},save:{_,_ in
+            calls += 1
+            if calls == 1 { throw RecordingError(message:"disk full") }
+            await withCheckedContinuation { saving=$0 }
+            return fixture.inspected
+        },sleep:{_ in})
+        await flow.prepare(targets:[],destination:URL(filePath:"/tmp/test.motionclicker"))
+        flow.countdown(seconds:1); await settle { flow.phase == .recording }
+        await flow.stop()
+        let retry=Task { await flow.retrySave() }
+        await settle { saving != nil }
+        let quit=Task { await flow.stop(reason:"Application closing"); quitAcknowledged=true }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(quitAcknowledged)
+        XCTAssertTrue(gate.busy); XCTAssertFalse(gate.acquireRun())
+        saving?.resume(); saving=nil
+        await retry.value; await quit.value
+        XCTAssertTrue(quitAcknowledged); XCTAssertEqual(flow.phase,.saved); XCTAssertFalse(gate.busy)
+    }
     func testControlRegionsConvertAppKitOriginAndReplaceSnapshot() {
         let regions = ControlRegions()
         regions.replace(appKitRects: [CGRect(x: -100, y: 100, width: 80, height: 40)], primaryHeight: 900)

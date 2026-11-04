@@ -32,7 +32,9 @@ struct WorkspaceView: View {
                             }.padding(24).frame(maxWidth:.infinity,alignment:.leading)
                         }
                         .onChange(of:model.previewPresentationRequest) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
-                        .onChange(of:model.preview.count) { _,_ in scroller.scrollTo("event-preview",anchor:.bottom) }
+                        .onChange(of:model.preview.count) { _,_ in
+                            if model.bundle == nil { scroller.scrollTo("event-preview",anchor:.bottom) }
+                        }
                         }
                         if geometry.size.width >= 900, model.mode != "Record" {
                             Divider()
@@ -200,7 +202,7 @@ struct WorkspaceView: View {
                     Button { model.stop("Paused — Run restarts from the beginning",paused:true) } label: { Label("Pause",systemImage:"pause.fill") }
                     Button(role:.destructive) { model.stop() } label: { Label("Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
                 } else {
-                    Button(action:model.start) { Label(model.runPaused ? "Restart Run" : "Run",systemImage:"play.fill") }.buttonStyle(.borderedProminent).disabled(model.active && !model.runPaused)
+                    Button(action:model.start) { Label(model.runPaused ? "Restart Run" : "Run",systemImage:"play.fill") }.buttonStyle(.borderedProminent).disabled(!model.canRun)
                     if model.runPaused { Button("Stop",role:.destructive) { model.stop() } }
                 }
             }
