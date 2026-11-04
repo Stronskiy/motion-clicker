@@ -200,6 +200,22 @@ public sealed class WindowsRecordingLifecycleTests
         Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
         f.Platform.Video.ClosedSignal.TrySetResult();
     }
+    [Fact] public async Task ShutdownDeadlineDoesNotDependOnOwnerProgress()
+    {
+        using var entered=new ManualResetEventSlim();using var release=new ManualResetEventSlim();
+        await using var f=new Fixture(_=>{entered.Set();release.Wait(TimeSpan.FromSeconds(20));return false;});
+        await f.Prepare();var start=f.Controller.StartAsync();await WaitForState(f.Controller,RecordingState.Recording);
+        f.Platform.Frame(1_000_010);await start;Interlocked.Exchange(ref f.Platform.Now,1_000_100);
+        f.Platform.Sample!(new(1_000_020,3,new(-10,10),ActionKind.Move,null,null,null,0));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(3)));
+        try
+        {
+            await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StopAsync().WaitAsync(TimeSpan.FromSeconds(13)));
+            var recovery=(await f.Controller.RecoveryAsync().WaitAsync(TimeSpan.FromSeconds(1)))!;
+            Assert.False(recovery.ManifestPublished);Assert.True(Directory.Exists(recovery.StagingPath));
+        }
+        finally{release.Set();}
+    }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
         var timeout=DateTime.UtcNow.AddSeconds(3);
