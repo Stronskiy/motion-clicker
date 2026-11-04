@@ -192,7 +192,9 @@ struct WorkspaceView: View {
                     Text("Emergency stop: ⌃⌥⌘ \(model.hotkey == UInt32(kVK_F8) ? "F8" : "F9")").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if model.mode == "Record" {
+                if model.runNeedsRelease {
+                    Button(role:.destructive) { model.stop("Retry Stop") } label: { Label("Retry Stop",systemImage:"stop.fill") }.keyboardShortcut(".")
+                } else if model.mode == "Record" {
                     if model.recording.canStop {
                         Button(role:.destructive) { model.stop() } label: { Label(model.recording.phase == .recording || model.recording.phase == .starting ? "Stop Recording" : "Cancel Recording",systemImage:"stop.fill") }.keyboardShortcut(".")
                     }

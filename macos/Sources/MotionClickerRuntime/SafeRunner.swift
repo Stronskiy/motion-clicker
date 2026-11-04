@@ -49,6 +49,8 @@ public struct RunnerSnapshot: Sendable {
     public let reason: String
     public let dispatched: Int64
     public let maxLagUs: Int64
+    /// True only while this runner retains its own unacknowledged injected hold.
+    public let hasUnreleasedInput: Bool
 }
 public enum RuntimeFailure: Error { case unsafe(String) }
 /// All dispatch, cancellation and hold ownership transitions share this gate.
@@ -75,7 +77,7 @@ public final class SafeRunner: @unchecked Sendable {
     }
     public var snapshot: RunnerSnapshot {
         gate.lock(); defer { gate.unlock() }
-        return RunnerSnapshot(state: state, reason: reason, dispatched: dispatched, maxLagUs: maxLag)
+        return RunnerSnapshot(state: state, reason: reason, dispatched: dispatched, maxLagUs: maxLag, hasUnreleasedInput: owned != nil)
     }
     public func start(_ program: RunProgram, mapping: [String: String], delayUs: Int64 = 0, hotkeyReady: Bool) throws {
         gate.lock(); defer { gate.unlock() }

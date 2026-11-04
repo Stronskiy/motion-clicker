@@ -5,7 +5,7 @@ import MotionClickerMacRecording
 
 /// One owner for Run (including paused) and the entire capture/save lifetime.
 @MainActor @Observable final class AppOperationGate {
-    enum Operation: Equatable { case idle, run, runPaused, recording, opening }
+    enum Operation: Equatable { case idle, run, runPaused, runReleasePending, recording, opening }
     private(set) var operation: Operation = .idle
     var busy: Bool { operation != .idle }
     func acquireRun() -> Bool {
@@ -13,6 +13,9 @@ import MotionClickerMacRecording
         operation = .run; return true
     }
     func pauseRun() { if operation == .run { operation = .runPaused } }
+    func retainRunRelease() {
+        if operation == .idle || operation == .run || operation == .runPaused || operation == .runReleasePending { operation = .runReleasePending }
+    }
     func acquireRecording() -> Bool { guard !busy else { return false }; operation = .recording; return true }
     func acquireOpen() -> Bool { guard !busy else { return false }; operation = .opening; return true }
     func release() { operation = .idle }

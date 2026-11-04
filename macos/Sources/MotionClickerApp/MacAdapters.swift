@@ -122,6 +122,7 @@ final class RunWorker: @unchecked Sendable {
     private var isCancelled:Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     let runner: SafeRunner
     init(_ runner:SafeRunner) { self.runner=runner }
+    var snapshot:RunnerSnapshot { runner.snapshot }
     func launch() {
         queue.async { [self] in
             while !isCancelled && [.armed,.running].contains(runner.snapshot.state) {

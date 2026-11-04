@@ -49,8 +49,10 @@ struct ClickPoint: Identifiable {
     private let backend=MacInput()
     private let emergency=EmergencyHotkey()
     private var worker:RunWorker?
+    private let runPreparation:(() throws -> Void)?
     private var panels:[NSPanel]=[]
-    init() {
+    init(worker:RunWorker? = nil, runPreparation:(() throws -> Void)? = nil) {
+        self.worker=worker; self.runPreparation=runPreparation
         recording = RecordingFlow(gate: operation, makeCapture: { [controlRegions] in NativeRecordingCapture(regions: controlRegions) })
         refreshDisplays()
         emergency.stop = { [weak self] in self?.stop("Emergency hotkey") }
@@ -77,6 +79,7 @@ struct ClickPoint: Identifiable {
             return slot.geometry.size == display.geometry.size && slot.geometry.scaleFactor == display.geometry.scaleFactor && slot.geometry.rotationDegrees == display.geometry.rotationDegrees
         }
     }
+    var runNeedsRelease: Bool { operation.operation == .runReleasePending }
     var runActive: Bool { operation.operation == .run }
     var runPaused: Bool { operation.operation == .runPaused }
     func refreshDisplays() {
@@ -158,27 +161,36 @@ struct ClickPoint: Identifiable {
             if mode == "Record" { throw RuntimeFailure.unsafe("Use the recording controls in this workspace") }
             if mode == "Project", let bundle, !bundle.executable { throw RuntimeFailure.unsafe(bundle.mediaError ?? "Partial recording is inspection only") }
             let plan=try program()
-            try emergency.register(keyCode:hotkey)
-            try backend.beginMonitoring()
+            if let runPreparation { try runPreparation() }
+            else { try emergency.register(keyCode:hotkey); try backend.beginMonitoring() }
             let runner=worker?.runner ?? SafeRunner(clock:ContinuousClock(),monitors:provider,backend:backend)
             // Keep the runner across restarts if a release failed: creating a new one must not erase ownership.
             let explicitMapping = mode == "Project" ? mapping : Dictionary(uniqueKeysWithValues:plan.slots.map { ($0.id,$0.id) })
             try runner.start(plan,mapping:explicitMapping,delayUs:Int64(delaySeconds*1_000_000),hotkeyReady:true)
             worker=RunWorker(runner); worker?.launch(); poll()
-        } catch { operation.release(); emergency.unregister(); self.error="Start blocked: \(error)" }
+        } catch { poll(); self.error="Start blocked: \(error)" }
     }
     func poll() {
-        if !operation.busy { emergency.unregister() }
-        guard let report=worker?.runner.snapshot else { return }
-        snapshot=RunnerSnapshotView(state:report.state,dispatched:report.dispatched,maxLagUs:report.maxLagUs)
+        guard let report=worker?.snapshot else {
+            if operation.operation == .run || operation.operation == .runPaused || operation.operation == .runReleasePending { operation.release() }
+            if !operation.busy { emergency.unregister() }
+            return
+        }
+        snapshot=RunnerSnapshotView(state:report.state,dispatched:report.dispatched,maxLagUs:report.maxLagUs,hasUnreleasedInput:report.hasUnreleasedInput)
         status=report.reason
-        if report.state == .paused { operation.pauseRun() }
-        else if report.state != .armed && report.state != .running && operation.operation != .recording && operation.operation != .opening { operation.release(); emergency.unregister() }
+        if report.hasUnreleasedInput && report.state != .armed && report.state != .running { operation.retainRunRelease() }
+        else if report.state == .paused { operation.pauseRun() }
+        else if !report.hasUnreleasedInput && report.state != .armed && report.state != .running && (operation.operation == .run || operation.operation == .runPaused || operation.operation == .runReleasePending) { operation.release() }
+        if !operation.busy { emergency.unregister() }
     }
     func stop(_ reason:String="Stopped",paused:Bool=false) {
-        if recording.ownsOperation { Task { await recording.stop(reason: reason == "Stopped" ? nil : reason); emergency.unregister() }; return }
+        // Retry only input this SafeRunner still owns, before routing capture cleanup.
         worker?.stop(reason,paused:paused); poll()
-        if !paused && operation.operation == .runPaused { operation.release() }
+        if recording.ownsOperation {
+            Task { await recording.stop(reason: reason == "Stopped" ? nil : reason); poll() }
+            return
+        }
+        if !paused && operation.operation == .runPaused { operation.release(); emergency.unregister() }
     }
     func prepareRecording() {
         guard !active else { return }
@@ -248,6 +260,7 @@ struct RunnerSnapshotView {
     var state:RunnerState = .idle
     var dispatched:Int64=0
     var maxLagUs:Int64=0
+    var hasUnreleasedInput=false
 }
 
 @main struct MotionClickerApp: App {

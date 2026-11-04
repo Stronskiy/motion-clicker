@@ -72,7 +72,12 @@ final class RunnerTests: XCTestCase {
         let (c,_,b,r,p)=fixture(); try r.start(p,mapping:["slot":"display"],hotkeyReady:true)
         c.nowUs=100; r.pump(); b.failRelease=true; r.stop()
         XCTAssertEqual(r.snapshot.state,.failed); XCTAssertTrue(r.snapshot.reason.contains("release"))
+        XCTAssertTrue(r.snapshot.hasUnreleasedInput)
         XCTAssertThrowsError(try r.start(p,mapping:["slot":"display"],hotkeyReady:true))
+        XCTAssertTrue(r.snapshot.hasUnreleasedInput)
+        b.failRelease=false; r.stop()
+        XCTAssertFalse(r.snapshot.hasUnreleasedInput)
+        XCTAssertEqual(b.calls,["buttonDown","release","release"])
     }
     func testNoHotkeyOrUnresolvedMappingCannotStart() {
         let (_,_,b,r,p)=fixture()

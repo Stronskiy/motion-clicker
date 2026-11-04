@@ -233,3 +233,11 @@ Generated native fixtures exercise encode/save/fresh open/decode/player readines
 and offset seeking without screens or hooks. These source/generated tests do not
 verify real ScreenCaptureKit/pointer permissions, physical timing, multimonitor
 runtime behavior, or the Windows recording UI. Those acceptance gates remain open.
+
+Run ownership is explicit: `RunnerSnapshot.hasUnreleasedInput` is sampled under
+SafeRunner's ownership lock and forwarded by `RunWorker.snapshot`. A failed Run
+with unresolved owned input retains the app gate as release-pending; Record,
+Open, target mutation and restart stay unavailable. Retry Stop and the emergency
+route retry only SafeRunner's owned release. The gate and hotkey are relinquished
+only after acknowledgment; an ordinary failed Run without ownership may release
+the gate. Start-error cleanup and quit follow the same ownership rule.
