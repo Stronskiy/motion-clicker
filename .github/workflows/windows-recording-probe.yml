@@ -35,7 +35,7 @@ jobs:
         run: |
           dotnet restore MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj --locked-mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet test MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~WindowsRecordingClockTests|FullyQualifiedName~WindowsPointerAdapterTests|FullyQualifiedName~WindowsStreamTimelineTests" | Tee-Object probe-clock.log
+          dotnet test MotionClicker.Core.Tests/MotionClicker.Core.Tests.csproj -c Release --no-restore --filter "FullyQualifiedName~WindowsRecordingClockTests|FullyQualifiedName~WindowsPointerAdapterTests|FullyQualifiedName~WindowsStreamTimelineTests|FullyQualifiedName~WindowsHookWatchdogTests|FullyQualifiedName~WindowsRecordingLifecycleTests" | Tee-Object probe-clock.log
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

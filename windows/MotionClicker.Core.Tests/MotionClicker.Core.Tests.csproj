@@ -18,6 +18,7 @@
     <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingClock.cs" Link="WindowsRecordingClock.cs" />
     <Compile Include="../MotionClicker.Windows/Recording/WindowsPointerAdapter.cs" Link="WindowsPointerAdapter.cs" />
     <Compile Include="../MotionClicker.Windows/Recording/WindowsStreamTimeline.cs" Link="WindowsStreamTimeline.cs" />
+    <Compile Include="../MotionClicker.Windows/Recording/WindowsHookWatchdog.cs" Link="WindowsHookWatchdog.cs" />
     <None Include="../../contracts/fixtures/recording/*.json" Link="fixtures/recording/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../contracts/fixtures/*.json" Link="fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
