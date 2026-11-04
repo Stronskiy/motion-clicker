@@ -5,6 +5,7 @@ import Observation
 import Carbon
 import MotionClickerCore
 import MotionClickerRuntime
+import MotionClickerRecording
 
 struct ClickPoint: Identifiable {
     let id=UUID()
@@ -14,6 +15,13 @@ struct ClickPoint: Identifiable {
     var pauseMs:Double=100
 }
 @MainActor @Observable final class ClickerModel {
+    let operation = AppOperationGate()
+    let controlRegions = ControlRegions()
+    var recording: RecordingFlow!
+    var recordSelected: Set<String> = []
+    var bundle: InspectedBundle?
+    var bundleRoot: URL?
+    var recoveryEntries: [URL] = []
     var mode="Quick Click"
     var displays:[RuntimeDisplay]=[]
     var selected:Set<String>=[]
@@ -42,6 +50,7 @@ struct ClickPoint: Identifiable {
     private var worker:RunWorker?
     private var panels:[NSPanel]=[]
     init() {
+        recording = RecordingFlow(gate: operation, makeCapture: { [controlRegions] in NativeRecordingCapture(regions: controlRegions) })
         refreshDisplays()
         emergency.stop = { [weak self] in self?.stop("Emergency hotkey") }
         let center=NSWorkspace.shared.notificationCenter
@@ -55,26 +64,31 @@ struct ClickPoint: Identifiable {
         }
         NotificationCenter.default.addObserver(forName:NSApplication.willTerminateNotification,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.stop("Application closing") } }
     }
-    var active:Bool { snapshot.state == .running || snapshot.state == .armed }
+    var active:Bool { operation.busy }
+    var runActive: Bool { operation.operation == .run }
+    var runPaused: Bool { operation.operation == .runPaused }
     func refreshDisplays() {
+        guard !active else { return }
         displays=provider.displays()
         if selected.isEmpty, let first=displays.first { selected=[first.id]; if points.isEmpty { points=[ClickPoint(displayID:first.id)] } }
     }
     func requestPermissions() {
+        guard !active else { return }
         // Deliberate user action only. No changing System Settings on the user's behalf.
         _ = CGRequestPostEventAccess(); _ = CGRequestListenEventAccess()
         status="Review Accessibility and Input Monitoring in System Settings. Restart if macOS requests it."
     }
     func loadProject() {
+        guard !active else { return }
         let panel=NSOpenPanel(); panel.allowedContentTypes=[.json]; panel.allowsMultipleSelection=false
         guard panel.runModal() == .OK, let url=panel.url else { return }
         do {
             let values=try url.resourceValues(forKeys:[.fileSizeKey]); guard (values.fileSize ?? 0) <= 16_777_216 else { throw RuntimeFailure.unsafe("Project JSON exceeds 16 MB") }
             let loaded=try JSONDecoder().decode(MotionProject.self,from:Data(contentsOf:url))
             let program=try RunProgram.project(loaded)
-            stop("Project loaded")
+            bundle=nil; bundleRoot=nil
             project=loaded; projectName=url.lastPathComponent; mapping=[:]; preview=PreviewRunner.events(program); mode="Project"
-            status="Map every imported monitor explicitly before Start. Video playback and editing are unavailable in this preview."
+            status="Domain-only JSON imported. Map every monitor explicitly before Run. No source video is associated."
         } catch { self.error="Project cannot be loaded: \(error)" }
     }
     func program() throws -> RunProgram {
@@ -115,8 +129,10 @@ struct ClickPoint: Identifiable {
     }
     func start() {
         do {
-            guard !active else { return }
+            guard operation.acquireRun() else { return }
             guard delaySeconds.isFinite, delaySeconds >= 0, delaySeconds <= 86_400 else { throw RuntimeFailure.unsafe("Start delay must be 0…86400 seconds") }
+            if mode == "Record" { throw RuntimeFailure.unsafe("Use the recording controls in this workspace") }
+            if mode == "Project", let bundle, !bundle.executable { throw RuntimeFailure.unsafe(bundle.mediaError ?? "Partial recording is inspection only") }
             let plan=try program()
             try emergency.register(keyCode:hotkey)
             try backend.beginMonitoring()
@@ -125,16 +141,68 @@ struct ClickPoint: Identifiable {
             let explicitMapping = mode == "Project" ? mapping : Dictionary(uniqueKeysWithValues:plan.slots.map { ($0.id,$0.id) })
             try runner.start(plan,mapping:explicitMapping,delayUs:Int64(delaySeconds*1_000_000),hotkeyReady:true)
             worker=RunWorker(runner); worker?.launch(); poll()
-        } catch { emergency.unregister(); self.error="Start blocked: \(error)" }
+        } catch { operation.release(); emergency.unregister(); self.error="Start blocked: \(error)" }
     }
     func poll() {
         guard let report=worker?.runner.snapshot else { return }
         snapshot=RunnerSnapshotView(state:report.state,dispatched:report.dispatched,maxLagUs:report.maxLagUs)
         status=report.reason
-        if !active { emergency.unregister() }
+        if report.state == .paused { operation.pauseRun() }
+        else if report.state != .armed && report.state != .running && operation.operation != .recording && operation.operation != .opening { operation.release(); emergency.unregister() }
     }
-    func stop(_ reason:String="Stopped",paused:Bool=false) { worker?.stop(reason,paused:paused); poll() }
+    func stop(_ reason:String="Stopped",paused:Bool=false) {
+        if recording.ownsOperation { Task { await recording.stop(reason: reason == "Stopped" ? nil : reason); emergency.unregister() }; return }
+        worker?.stop(reason,paused:paused); poll()
+        if !paused && operation.operation == .runPaused { operation.release() }
+    }
+    func prepareRecording() {
+        guard !active else { return }
+        let chosen = displays.filter { recordSelected.contains($0.id) }
+        guard !chosen.isEmpty else { error="Select at least one display to record."; return }
+        let panel=NSSavePanel(); panel.title="New local recording"; panel.nameFieldStringValue="Recording.motionclicker"
+        panel.canCreateDirectories=true; panel.message="Choose a new .motionclicker directory. Existing bundles are never overwritten."
+        panel.begin { [weak self] response in
+            guard response == .OK, let url=panel.url, let self, !self.active else { return }
+            let targets=chosen.map { RecordingTarget(slot:MonitorSlot(id:$0.id,name:$0.name,geometry:$0.geometry),display:$0) }
+            Task { await self.recording.prepare(targets:targets,destination:url) }
+        }
+    }
+    func beginRecordingCountdown() {
+        do { try emergency.register(keyCode:hotkey); recording.countdown() }
+        catch { self.error="Emergency stop unavailable: \(error)" }
+    }
+    func openBundle() {
+        guard !active else { return }
+        let panel=NSOpenPanel(); panel.title="Open recorded bundle"; panel.canChooseDirectories=true; panel.canChooseFiles=false; panel.allowsMultipleSelection=false
+        panel.begin { [weak self] response in
+            guard response == .OK, let url=panel.url, let self else { return }
+            self.openBundle(url)
+        }
+    }
+    func openBundle(_ url: URL) {
+        guard operation.acquireOpen() else { return }
+        status="Opening bundle and decoding source video…"
+        Task {
+            defer { operation.release() }
+            do { install(try await BundleIO.open(url),root:url) }
+            catch {
+                recoveryEntries=await BundleIO.recovery(url)
+                self.error="Bundle cannot be opened: \(error). \(recoveryEntries.isEmpty ? "No recoverable entries found." : "Recoverable data remains at " + url.path)"
+            }
+        }
+    }
+    func inspectSavedRecording() {
+        guard let saved=recording.saved, let root=recording.destination, !active else { return }
+        install(saved,root:root)
+    }
+    private func install(_ saved: InspectedBundle, root: URL) {
+        bundle=saved; bundleRoot=root; project=saved.snapshot.project; projectName=root.lastPathComponent; mapping=[:]
+        preview=PreviewRunner.events((try? RunProgram.project(saved.snapshot.project)) ?? RunProgram(steps:[],slots:[],periodUs:1,count:1,durationUs:nil))
+        mode="Project"
+        status=saved.mediaError ?? (saved.executable ? "Source video verified. Map every monitor explicitly before Run." : "Partial recording — inspection only.")
+    }
     func identify() {
+        guard !active else { return }
         panels.forEach { $0.close() }; panels=[]
         for screen in NSScreen.screens {
             let number=screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
@@ -158,11 +226,15 @@ struct RunnerSnapshotView {
 
 @main struct MotionClickerApp: App {
     @State private var model=ClickerModel()
+    @NSApplicationDelegateAdaptor(RecordingAppDelegate.self) private var appDelegate
     var body: some Scene {
-        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:668) }
+        Window("Motion Clicker",id:"main") { WorkspaceView(model:model).frame(minWidth:980,minHeight:720).onAppear { appDelegate.model=model } }
             .defaultSize(width:1180,height:800).windowResizability(.contentMinSize).windowToolbarStyle(.unified)
             .commands {
-                CommandGroup(replacing:.newItem) { Button("Open Project JSON…",action:model.loadProject).keyboardShortcut("o").disabled(model.active) }
+                CommandGroup(replacing:.newItem) {
+                    Button("Open Recorded Bundle…",action:model.openBundle).keyboardShortcut("o").disabled(model.active)
+                    Button("Import Domain JSON…",action:model.loadProject).disabled(model.active)
+                }
                 CommandMenu("Run") {
                     Button("Preview",action:model.requestPreview).keyboardShortcut("p",modifiers:[.command,.shift]).disabled(model.active)
                     Button("Run",action:model.start).keyboardShortcut("r",modifiers:[.command,.shift]).disabled(model.active)
