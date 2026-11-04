@@ -1,6 +1,7 @@
 using MotionClicker.Core;
 using MotionClicker.Core.Runtime;
 using Xunit;
+using MotionClicker.Windows;
 namespace MotionClicker.Core.Tests;
 public sealed class WorkspaceSafetyTests {
     [Fact] public void FailedRunMustPublishUnresolvedOwnedButtonUntilReleaseAcknowledged() {
@@ -11,6 +12,13 @@ public sealed class WorkspaceSafetyTests {
         var ownership=typeof(RunnerSnapshot).GetProperty("OwnedButton");
         Assert.NotNull(ownership);Assert.Equal(MouseButton.Left,ownership.GetValue(snapshot));
         backend.FailRelease=false;runner.Stop();Assert.Null(ownership.GetValue(runner.Snapshot));Assert.Equal(2,backend.ReleaseAttempts);
+    }
+    [Fact] public async Task WorkerPublishesFailedOwnershipAndAcknowledgesOnlySuccessfulRetry() {
+        var backend=new FailingBackend();using var worker=new RunWorker(new(new Clock(),new Monitors(),backend));
+        await worker.StartAsync(new([new(0,"slot",new(1,1),ActionKind.ButtonDown,MouseButton.Left),new(1000,"slot",new(1,1),ActionKind.ButtonUp,MouseButton.Left)],[new("slot","Display",Geometry)]),new Dictionary<string,string>{{"slot","display"}},0,()=>{});
+        using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5));while(worker.Snapshot.Dispatched==0)await Task.Delay(1,deadline.Token);
+        await worker.StopAsync();Assert.Equal(MouseButton.Left,worker.Snapshot.OwnedButton);Assert.Equal(RunnerState.Failed,worker.Snapshot.State);
+        backend.FailRelease=false;await worker.StopAsync();Assert.Null(worker.Snapshot.OwnedButton);Assert.Equal(2,backend.ReleaseAttempts);
     }
     private static readonly DisplayGeometry Geometry=new(new(0,0),new(64,64),1,0);
     private sealed class Clock : IMonotonicClock { public long NowUs=>0; }

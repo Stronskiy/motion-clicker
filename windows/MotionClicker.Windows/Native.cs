@@ -170,15 +170,3 @@ internal sealed class EmergencyHotkey : IDisposable {
     public void Unregister() { if(registered) Native.UnregisterHotKey(hwnd,1); registered=false; }
     public void Dispose() { Unregister(); Native.WTSUnRegisterSessionNotification(hwnd); Native.RemoveWindowSubclass(hwnd,proc,1); }
 }
-internal sealed class RunWorker(SafeRunner runner) : IDisposable {
-    private readonly CancellationTokenSource cancellation=new();
-    public SafeRunner Runner=>runner;
-    public void Launch()=>Task.Run(()=> {
-        while(!cancellation.IsCancellationRequested && runner.Snapshot.State is RunnerState.Armed or RunnerState.Running) {
-            runner.Pump();
-            if(cancellation.Token.WaitHandle.WaitOne(1)) break; // cancellable monotonic scheduling off UI thread
-        }
-    });
-    public void Stop(string reason="Stopped",bool paused=false) { runner.Stop(reason,paused); cancellation.Cancel(); }
-    public void Dispose() { Stop(); }
-}

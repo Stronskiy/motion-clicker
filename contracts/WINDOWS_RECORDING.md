@@ -253,3 +253,12 @@ mode is not used as evidence. WinUI hosting will use MediaPlayerElement's native
 surface; the same MediaPlaybackItem DurationLimit constrains each inspected clear
 interval. System transport commands are disabled, so they cannot bypass the
 inspection controller. No known-gap auto-skip is permitted.
+
+`NativeVideoInspector.InspectAsync(path, frameCount, durationUs, pixelWidth,
+pixelHeight, cancellation)` is the explicit native codec boundary and returns
+coded/decoded count, file origin and native100ns duration. App inspection runs
+fresh ColdOpen with external owned scratch, then validates each resolved stream
+through the inspector before allowing Run. Partial sources and native failures
+remain inspectable, with failure text and no execution authorization. Open never
+constructs a capture writer. Pixel dimensions derive from frozen local size and
+scale; source file time stays independent of saved mediaTimeZeroUs.

@@ -18,6 +18,7 @@
     <Compile Include="../MotionClicker.Windows/RecordingUI/ControlRegions.cs" Link="ControlRegions.cs" />
     <Compile Include="../MotionClicker.Windows/RecordingUI/CompleteGapLookup.cs" Link="CompleteGapLookup.cs" />
     <Compile Include="../MotionClicker.Windows/MonitorMapLayout.cs" Link="MonitorMapLayout.cs" />
+    <Compile Include="../MotionClicker.Windows/RunWorker.cs" Link="RunWorker.cs" />
     <Compile Include="../MotionClicker.Windows/WindowSizing.cs" Link="WindowSizing.cs" />
     <Compile Include="../MotionClicker.Windows/Recording/WindowsRecordingClock.cs" Link="WindowsRecordingClock.cs" />
     <Compile Include="../MotionClicker.Windows/Recording/WindowsPointerAdapter.cs" Link="WindowsPointerAdapter.cs" />
