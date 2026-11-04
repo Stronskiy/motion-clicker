@@ -332,10 +332,10 @@ internal sealed partial class MainWindow : Window {
         var snapshot=worker?.Snapshot;
         if(executionLease is not null&&!runStarting&&snapshot?.OwnedButton is null&&snapshot?.State is not (RunnerState.Running or RunnerState.Armed or RunnerState.Paused)) {executionLease.Dispose();executionLease=null;}
         if(snapshot is not null&&executionLease is not null) {status.Text=snapshot.Reason;metrics.Text=$"{snapshot.State} · dispatched attempts: {snapshot.Dispatched} · maximum scheduler lag: {snapshot.MaxLagUs/1000.0:0.1}ms";}
-        if(recording.Busy||recordMode) {var state=recording.Snapshot;recordingStatus.Text=$"{state.Phase} · {state.Message}\n{state.Destination}\n{state.Recovery}";if(recording.Busy)status.Text=state.Message??state.Phase.ToString();}
-        retrySave.Visibility=recording.Phase==RecordingUI.WorkspacePhase.Failed&&recording.Recovery is not null?Visibility.Visible:Visibility.Collapsed;
+        if(recording.Busy||recordMode) {var state=recording.Snapshot;recordingStatus.Text=$"{state.Phase} · {state.Message}\n{state.Destination}\n{state.Recovery}";if(recording.Busy||recordMode)status.Text=state.Message??state.Phase.ToString();}
+        retrySave.Visibility=recording.CanRetrySave?Visibility.Visible:Visibility.Collapsed;
         controlsHost.IsEnabled=!Active&&!closingRequested;
-        start.IsEnabled=!recordMode&&!runStarting&&!recording.Busy&&!closingRequested&&(!Active||snapshot?.State==RunnerState.Paused)&&snapshot?.OwnedButton is null;
+        start.IsEnabled=(!projectMode||bundleInspection?.CanRun!=false)&&!recordMode&&!runStarting&&!recording.Busy&&!closingRequested&&(!Active||snapshot?.State==RunnerState.Paused)&&snapshot?.OwnedButton is null;
         pause.IsEnabled=snapshot?.State is RunnerState.Armed or RunnerState.Running;
         stop.IsEnabled=recording.Busy||executionLease is not null;stop.Content=snapshot?.OwnedButton is not null||recording.Phase==RecordingUI.WorkspacePhase.CleanupBlocked?"Retry Stop":"Stop";
         previewButton.IsEnabled=!Active&&!recordMode&&!closingRequested;openButton.IsEnabled=openSaved.IsEnabled=!Active&&!closingRequested;

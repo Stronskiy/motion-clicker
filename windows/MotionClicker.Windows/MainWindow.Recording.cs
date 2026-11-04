@@ -33,7 +33,7 @@ internal sealed partial class MainWindow {
         recordStart.Style=(Style)Application.Current.Resources["AccentButtonStyle"];
         recordStart.Click+=async(_,_)=>await RecordAsync();
         openSaved.Click+=async(_,_)=>await OpenSavedAsync();
-        retrySave.Click+=async(_,_)=>{await recording.RetrySaveAsync();Poll();};
+        retrySave.Click+=async(_,_)=>{await recording.RetrySaveAsync();Poll();if(closingRequested)_=CompleteCloseAsync();};
         AppWindow.Closing+=(_,args)=> {
             if(closeApproved)return;
             args.Cancel=true;closingRequested=true;

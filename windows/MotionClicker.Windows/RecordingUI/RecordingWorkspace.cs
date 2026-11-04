@@ -25,13 +25,15 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
     private IDisposable? lease;
     private CancellationTokenSource? cancellation;
     private IRecordingTake? take;
-    private Task? beginning,stopping;
+    private Task? beginning,stopping,retrying;
+    private bool saveRetryEligible,retryCompleted;
     private int polling;
     public RecordingWorkspaceSnapshot Snapshot=>Volatile.Read(ref snapshot);
     public WorkspacePhase Phase=>Snapshot.Phase;
     public string? Destination=>Snapshot.Destination;
     public string? Message=>Snapshot.Message;
     public string? Recovery=>Snapshot.Recovery;
+    public bool CanRetrySave=>Volatile.Read(ref saveRetryEligible)&&Phase==WorkspacePhase.Failed;
     public bool Busy=>Phase is WorkspacePhase.Preparing or WorkspacePhase.Countdown or WorkspacePhase.Starting or WorkspacePhase.Recording or WorkspacePhase.Finalizing or WorkspacePhase.Saving or WorkspacePhase.Opening or WorkspacePhase.CleanupBlocked;
     private void Set(WorkspacePhase phase,string? message=null,string? recovery=null)=>Volatile.Write(ref snapshot,new(phase,Destination,message,recovery??Recovery));
     public Task RecordAsync(RecordingTarget[] targets,string destination,int countdownSeconds) {
@@ -40,7 +42,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
                 throw new RecordingException("Choose displays, a new .motionclicker destination and a countdown from0 to60seconds");
             if(Busy||lease is not null)throw new RecordingException("Stop the current operation first");
             lease=operations.TryEnter(AppOperation.Recording)??throw new RecordingException("Stop execution or inspection first");
-            cancellation=new();take=null;stopping=null;snapshot=new(WorkspacePhase.Preparing,destination,null,null);
+            cancellation=new();take=null;stopping=null;retrying=null;saveRetryEligible=false;retryCompleted=false;snapshot=new(WorkspacePhase.Preparing,destination,null,null);
             beginning=BeginAsync(targets.ToArray(),destination,countdownSeconds,cancellation.Token);
             return ObserveBeginAsync(beginning);
         }
@@ -60,6 +62,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
     }
     public Task StopAsync(string? reason=null) {
         lock(sync) {
+            if(retrying is not null&&!retrying.IsCompleted)return retrying;
             if(stopping is not null)return stopping;
             if(beginning is null)return Task.CompletedTask;
             cancellation?.Cancel();stopping=FinishAsync(beginning,reason);return stopping;
@@ -79,9 +82,10 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
             safeToRelease=true;
             if(result is null)Set(failure is null?WorkspacePhase.Idle:WorkspacePhase.Failed,failure??reason,await RecoveryOfTake());
             else {
+                retryCompleted=result.Completed&&reason is null;
                 Set(WorkspacePhase.Saving,"Native capture stopped · committing project.json…");
                 try { await take!.SaveAsync(Destination!,CancellationToken.None).ConfigureAwait(false);Set(result.Completed&&reason is null?WorkspacePhase.Saved:WorkspacePhase.Partial,failure??reason??"Saved · open to inspect original source video"); }
-                catch(Exception error) { Set(WorkspacePhase.Failed,"Save failed: "+error.Message,await RecoveryOfTake()); }
+                catch(Exception error) { saveRetryEligible=true;Set(WorkspacePhase.Failed,"Save failed: "+error.Message,await RecoveryOfTake()); }
             }
         } finally {
             if(safeToRelease) {
@@ -100,7 +104,20 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
         } catch(Exception error) { if(ReferenceEquals(current,take)&&Phase==WorkspacePhase.Recording)await StopAsync("Source progress failed: "+error.Message).ConfigureAwait(false);return null; }
         finally{Volatile.Write(ref polling,0);}
     }
-    public Task RetrySaveAsync()=>Task.FromException(new NotImplementedException("Explicit save retry not implemented"));
+    public Task RetrySaveAsync() {
+        lock(sync) {
+            if(!CanRetrySave||take is null||lease is not null)throw new RecordingException("No stopped initial save is available to retry");
+            lease=operations.TryEnter(AppOperation.Recording)??throw new RecordingException("Finish the current app operation first");
+            Set(WorkspacePhase.Saving,"Retrying initial project commit · source bytes stay unchanged…");
+            return retrying=RetrySaveCoreAsync();
+        }
+    }
+    private async Task RetrySaveCoreAsync() {
+        await Task.Yield();
+        try {await take!.SaveAsync(Destination!,CancellationToken.None).ConfigureAwait(false);saveRetryEligible=false;Set(retryCompleted?WorkspacePhase.Saved:WorkspacePhase.Partial,"Saved · open the original source to inspect");}
+        catch(Exception error){Set(WorkspacePhase.Failed,"Save failed: "+error.Message,await RecoveryOfTake());}
+        finally {lock(sync){lease?.Dispose();lease=null;}}
+    }
     public async Task RetryStopAsync() {
         lock(sync){if(Phase!=WorkspacePhase.CleanupBlocked)return;stopping=null;}
         await StopAsync("Retry native closure").ConfigureAwait(false);

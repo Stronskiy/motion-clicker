@@ -49,12 +49,30 @@ public sealed class RecordingWorkspaceTests {
         services.SaveFailure=false;await model.RetrySaveAsync();Assert.Equal(WorkspacePhase.Saved,model.Phase);
         Assert.Equal(1,services.Calls.Count(c=>c=="start"));Assert.Equal(2,services.Calls.Count(c=>c=="save"));
     }
+    [Fact] public async Task UnknownNativeClosureRetainsGateAndNeverDisposesUnderLiveWork() {
+        var services=new FakeServices { StopFailure=true };var gate=new AppOperationGate();var model=new RecordingWorkspace(services,gate);
+        await model.RecordAsync([Target],"quarantine.motionclicker",0);await model.StopAsync();
+        Assert.Equal(WorkspacePhase.CleanupBlocked,model.Phase);Assert.True(gate.Busy);Assert.DoesNotContain("dispose",services.Calls);Assert.DoesNotContain("save",services.Calls);
+        services.StopFailure=false;await model.RetryStopAsync();Assert.False(gate.Busy);Assert.Contains("dispose",services.Calls);Assert.Equal(WorkspacePhase.Partial,model.Phase);
+    }
+    [Fact] public async Task SavingKeepsGateAndCloseWaitsForInitialCommit() {
+        var services=new FakeServices { Saving=new(TaskCreationOptions.RunContinuationsAsynchronously) };var gate=new AppOperationGate();var model=new RecordingWorkspace(services,gate);
+        await model.RecordAsync([Target],"saving.motionclicker",0);var stop=model.StopAsync();await Until(()=>model.Phase==WorkspacePhase.Saving);
+        Assert.True(gate.Busy);Assert.False(stop.IsCompleted);Assert.DoesNotContain("dispose",services.Calls);
+        var close=model.StopAsync("Application closing");Assert.False(close.IsCompleted);services.Saving.SetResult();await Task.WhenAll(stop,close);Assert.False(gate.Busy);
+    }
+    [Fact] public async Task ProgressCoalescesToOneNativeRequest() {
+        var services=new FakeServices { Progress=new(TaskCreationOptions.RunContinuationsAsynchronously) };var model=new RecordingWorkspace(services);
+        await model.RecordAsync([Target],"progress.motionclicker",0);var first=model.PollProgressAsync();Assert.Null(await model.PollProgressAsync());
+        Assert.Equal(1,services.ProgressRequests);services.Progress.SetResult("one snapshot");Assert.Equal("one snapshot",await first);await model.StopAsync();
+    }
     private static async Task Until(Func<bool> condition) { using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(5));while(!condition())await Task.Delay(1,deadline.Token); }
     internal static RecordingTarget Target { get; }=new(new("slot","Display",new(new(0,0),new(64,64),1,0)),new("native","Display",new(new(0,0),new(64,64),1,0),new(new(0,0),new(64,64))));
     private sealed class FakeServices : IRecordingWorkspaceServices {
         public List<string> Calls { get; }=[];
-        public TaskCompletionSource? Preparation,Countdown;
-        public bool DestinationFailure,StartFailure,SaveFailure;public bool Completed=true;
+        public TaskCompletionSource? Preparation,Countdown,Saving;
+        public TaskCompletionSource<string>? Progress;public int ProgressRequests;
+        public bool DestinationFailure,StartFailure,SaveFailure,StopFailure;public bool Completed=true;
         public Task CreateDestinationAsync(string destination,CancellationToken cancellation){Calls.Add("create:"+destination);if(DestinationFailure)throw new IOException("destination not owned");return Task.CompletedTask;}
         public IRecordingTake CreateTake()=>new FakeTake(this);
         public async Task CountdownAsync(int seconds,CancellationToken cancellation){Calls.Add("countdown:"+seconds);if(Countdown is not null)await Countdown.Task.WaitAsync(cancellation);}
@@ -63,10 +81,10 @@ public sealed class RecordingWorkspaceTests {
         private List<string> calls=>services.Calls;
         public async Task PrepareAsync(RecordingTarget[] targets,string destination,CancellationToken cancellation){Assert.Single(targets);calls.Add("prepare");if(services.Preparation is not null)await services.Preparation.Task;}
         public Task StartAsync(CancellationToken cancellation){calls.Add("start");if(services.StartFailure)throw new IOException("source failure");return Task.CompletedTask;}
-        public Task<RecordingTakeStatus?> StopAsync(string? reason){calls.Add("stop:"+(reason??"complete"));return Task.FromResult<RecordingTakeStatus?>(calls.Contains("start")?new(services.Completed):null);}
-        public Task SaveAsync(string destination,CancellationToken cancellation){calls.Add("save");if(services.SaveFailure)throw new IOException("disk full");return Task.CompletedTask;}
+        public Task<RecordingTakeStatus?> StopAsync(string? reason){calls.Add("stop:"+(reason??"complete"));if(services.StopFailure)throw new IOException("native closure unknown");return Task.FromResult<RecordingTakeStatus?>(calls.Contains("start")?new(services.Completed):null);}
+        public async Task SaveAsync(string destination,CancellationToken cancellation){calls.Add("save");if(services.SaveFailure)throw new IOException("disk full");if(services.Saving is not null)await services.Saving.Task;}
         public Task<string?> RecoveryAsync()=>Task.FromResult<string?>("recoverable staging");
-        public Task<string> ProgressAsync()=>Task.FromResult("native progress");
+        public Task<string> ProgressAsync(){Interlocked.Increment(ref services.ProgressRequests);return services.Progress?.Task??Task.FromResult("native progress");}
         public ValueTask DisposeAsync(){calls.Add("dispose");return ValueTask.CompletedTask;}
     }
 }
