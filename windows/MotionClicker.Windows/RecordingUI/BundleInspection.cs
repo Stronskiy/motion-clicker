@@ -11,6 +11,7 @@ internal sealed record BundleInspection(RecordedBundleSnapshot Snapshot,Recordin
         foreach(var media in snapshot.Media) {
             cancellation.ThrowIfCancellationRequested();
             try {
+                if(media.MediaTimeZeroUs<0||media.MediaTimeZeroUs>long.MaxValue/10||snapshot.Manifest.DurationUs>long.MaxValue/10)throw new RecordingException("Source time exceeds native playback limits");
                 var stream=snapshot.Manifest.Streams.Single(s=>s.MonitorSlotId==media.MonitorSlotId);
                 var slot=snapshot.Manifest.Targets.Single(s=>s.Id==media.MonitorSlotId);
                 var width=checked((int)Math.Round(slot.Geometry.Size.Width*slot.Geometry.ScaleFactor));

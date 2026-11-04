@@ -19,7 +19,7 @@ internal sealed partial class MainWindow {
     private readonly NumberBox recordingDelay=Number("Recording countdown (s)",3);
     private readonly TextBlock recordingStatus=new() { TextWrapping=TextWrapping.Wrap };
     private readonly Button chooseDestination=new() { Content="Choose destination folder…" },recordStart=new() { Content="Record selected displays" },openSaved=new() { Content="Open saved recording…" },retrySave=new() { Content="Retry initial save",Visibility=Visibility.Collapsed };
-    private string? destinationParent;
+    private string? destinationParent,operationError;
     private bool recordMode,runStarting,closingRequested,closeApproved,finishingClose,pollingRecording;
     private IDisposable? executionLease;
     private BundleInspection? bundleInspection;
@@ -71,23 +71,23 @@ internal sealed partial class MainWindow {
     }
     private async Task ChooseDestinationAsync() {
         using var lease=operations.TryEnter(AppOperation.ChoosingDestination);if(lease is null)return;
-        Poll();
+        operationError=null;Poll();
         try {
             var folder=await PickFolderAsync();if(folder is null||closingRequested)return;
             var free=await Task.Run(()=>new DriveInfo(Path.GetPathRoot(folder)!).AvailableFreeSpace);
             destinationParent=folder;destinationText.Text=$"{folder}\n{free/1_073_741_824d:0.00} GB available · creates a new .motionclicker folder; existing data is never replaced.";
-        } catch(Exception error){status.Text="Destination unavailable: "+error.Message;}
+        } catch(Exception error){operationError="Destination unavailable: "+error.Message;status.Text=operationError;}
         finally{lease.Dispose();Poll();if(closingRequested)_=CompleteCloseAsync();}
     }
     private async Task RecordAsync() {
         try {
-            if(Active)return;
+            if(Active)return;operationError=null;
             if(destinationParent is null)throw new RecordingException("Choose a destination folder before recording");
             var name=bundleName.Text.Trim();
             if(name.Length==0||name.Length>100||name is "." or ".."||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0||name.EndsWith('.')||name.EndsWith(' '))throw new RecordingException("Enter a valid new recording name");
             var root=Path.Combine(destinationParent,name+".motionclicker");
             var targets=displays.Where(d=>captureDisplays.Any(c=>(string)c.Tag==d.Id&&c.IsChecked==true)).Select((d,i)=>new RecordingTarget(new("display-"+(i+1),DisplayName(d),d.Geometry),d)).ToArray();
-            if(!double.IsFinite(recordingDelay.Value)||recordingDelay.Value<0||recordingDelay.Value>60||recordingDelay.Value!=Math.Truncate(recordingDelay.Value))throw new RecordingException("Countdown must be an integer from0 to60seconds");
+            if(!double.IsFinite(recordingDelay.Value)||recordingDelay.Value<0||recordingDelay.Value>60||recordingDelay.Value!=Math.Truncate(recordingDelay.Value))throw new RecordingException("Countdown must be an integer from 0 to 60 seconds");
             savedVideo?.StopPlayback();UpdateControlRegions();emergency.Register(hotkey.SelectedIndex==0?0x77u:0x78u);
             var task=recording.RecordAsync(targets,root,(int)recordingDelay.Value);Poll();await task;
         } catch(Exception error){await Error("Record blocked: "+error.Message);}
@@ -95,11 +95,11 @@ internal sealed partial class MainWindow {
     }
     private async Task OpenSavedAsync() {
         using var lease=operations.TryEnter(AppOperation.Opening);if(lease is null)return;
-        Poll();savedVideo?.StopPlayback();
+        operationError=null;Poll();savedVideo?.StopPlayback();
         try {
             var path=await PickFolderAsync();if(path is null||closingRequested)return;
             await InspectBundleAsync(path);
-        } catch(Exception error){status.Text="Saved recording cannot be opened: "+error.Message;recordingStatus.Text=status.Text;}
+        } catch(Exception error){operationError="Saved recording cannot be opened: "+error.Message;status.Text=operationError;recordingStatus.Text=operationError;}
         finally {lease.Dispose();Poll();if(closingRequested)_=CompleteCloseAsync();}
     }
     private async Task InspectBundleAsync(string path) {

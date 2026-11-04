@@ -25,6 +25,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
     private long sourceUs,generation;
     private bool settingControls,working,disposed;
     private Query? latest;
+    public string? InspectionFailure { get; private set; }
     private sealed record Query(long Generation,RecordedBundleMedia Media,long SourceUs,bool Play);
     public SavedVideoPanel(BundleInspection inspection) {
         this.inspection=inspection;Spacing=12;
@@ -84,7 +85,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
                 native.MediaOpened+=(_,_)=>opened.TrySetResult();
                 native.MediaFailed+=(_,args)=> {
                     var error=new RecordingException(args.Error+": "+args.ErrorMessage);opened.TrySetException(error);
-                    DispatcherQueue.TryEnqueue(()=>{if(query.Generation==generation&&!disposed)Mask("Native video unavailable: "+error.Message);});
+                    DispatcherQueue.TryEnqueue(()=>{if(query.Generation==generation&&!disposed){InspectionFailure="Native video unavailable: "+error.Message;Mask(InspectionFailure);}});
                 };
                 native.MediaEnded+=(_,_)=>DispatcherQueue.TryEnqueue(()=> {
                     if(query.Generation!=generation||disposed)return;
@@ -99,7 +100,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
                 if(query.Play)native.Play();
             }
         } catch(OperationCanceledException) { }
-        catch(Exception error) { if(!disposed&&activeGeneration==generation)Mask("Complete source inspection unavailable. Video is hidden: "+error.Message); }
+        catch(Exception error) { if(!disposed&&activeGeneration==generation){InspectionFailure="Complete source inspection unavailable. Video is hidden: "+error.Message;Mask(InspectionFailure);} }
         finally {working=false;if(latest is not null&&!disposed)_=ProcessAsync();}
     }
     public void PollPosition() {

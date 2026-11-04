@@ -22,7 +22,8 @@ internal sealed class RunWorker(SafeRunner runner) : IDisposable {
                     while(!token.IsCancellationRequested&&runner.Snapshot.State is RunnerState.Armed or RunnerState.Running) {
                         runner.Pump();Publish();if(token.WaitHandle.WaitOne(1))break;
                     }
-                } finally{Publish();}
+                } catch(Exception error){runner.Stop("Worker failed: "+error.Message);}
+                finally{Publish();}
             });
         } finally {Publish();commands.Release();}
     }

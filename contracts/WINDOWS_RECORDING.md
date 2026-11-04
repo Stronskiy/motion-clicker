@@ -1,8 +1,8 @@
 # Native Windows recording API (Task3 contract)
 
-This contract specifies the Windows11 x64 native adapter source slice. It does not
-claim that the app has Record/Stop/Save/Open controls or that real capture/input
-and physical timing acceptance have been exercised. Existing RECORDING.md is
+This contract specifies the Windows11 x64 native adapter and native recording/
+saved-video UI source. Generated codec tests and fake UI lifecycle tests do not
+establish live capture/input, GUI rendering or physical timing acceptance. Existing RECORDING.md is
 binding; no project or recording wire/schema change is introduced.
 
 ## Implemented source boundary
@@ -11,7 +11,7 @@ The public controller below is implemented, with an injected platform seam for
 fake lifecycle faults and generated-only native encoder tests. Production uses
 exact frozen HMONITOR WGC sources, owned BGRA copies, a dedicated passive pointer
 hook, an independent watchdog, a named serial session/store owner and bounded
-same-thread MF encoder workers. No app recording UI is present. Compiling these
+same-thread MF encoder workers. The later Task6 section specifies the implemented WinUI source boundary. Compiling these
 paths and exercising generated pixels does not establish live capture, hook,
 Windows GUI, permissions, session/sleep/topology or physical timing acceptance.
 
@@ -34,7 +34,7 @@ mutation, silent reinstall or unsupported hook-installed query is used.
 
 ## Public surface
 
-The planned library namespace is `MotionClicker.Windows.Recording`, targeting
+The library namespace is `MotionClicker.Windows.Recording`, targeting
 `net10.0-windows10.0.26100.0`, minimum Windows11 22000, x64.
 
 - `WindowsRecordingOptions(nuint OwnInjectedTag, Func<WindowsPointerSample,bool> IsControl)`.
@@ -216,7 +216,7 @@ long-run memory/storage and ten-minute/two-monitor<=50ms remain UNVERIFIED until
 controlled runtime evidence. The native capability probe is not the next user
 build or the requested finished recorder.
 
-## Task6 UI integration boundary (in progress)
+## Task6 UI integration boundary
 
 WinUI controls live in `RecordingUI/`, outside the native adapter's `Recording/`
 compile glob. `RecordingWorkspace` is the native-free, injected orchestration
@@ -228,10 +228,9 @@ recovery. Construction and display selection never call a native producer.
 requires SaveInitial's project commit. The app operation gate must include paused
 Run and unresolved owned-input release, and all recording/open work.
 
-Native playback will be selected only after the synthetic generated H264 probe
-verifies source readiness, offsets and a native endpoint independent of UI polling.
-Candidate is MediaPlayer/MediaPlaybackItem with native DurationLimit, hosted by
-WinUI MediaPlayerElement. Source files remain read-only. Complete gapsFile lookup
+Native playback uses MediaPlayer/MediaPlaybackItem with DurationLimit, hosted by
+WinUI MediaPlayerElement. Generated H264 probes verify headless frame-server
+readiness and native endpoint behavior; actual GUI rendering remains unverified. Source files remain read-only. Complete gapsFile lookup
 is authoritative; the first64 manifest gaps are only a validation preview.
 
 ### Implemented orchestration decisions

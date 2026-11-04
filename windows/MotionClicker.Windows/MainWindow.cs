@@ -126,7 +126,7 @@ internal sealed partial class MainWindow : Window {
     }
     private void OnSizingRootChanged(XamlRoot sender,XamlRootChangedEventArgs args){UpdateWindowSizing();UpdateControlRegions();}
     private void OnAppWindowSizingChanged(Microsoft.UI.Windowing.AppWindow sender,Microsoft.UI.Windowing.AppWindowChangedEventArgs args) {
-        if(args.DidSizeChange||args.DidPresenterChange||args.DidPositionChange) {UpdateWindowSizing();UpdateControlRegions();}
+        if(args.DidSizeChange||args.DidPresenterChange||args.DidPositionChange||args.DidVisibilityChange) {UpdateWindowSizing();UpdateControlRegions();}
     }
     private void UpdateWindowSizing() {
         if(applyingWindowSize||sizingRoot==null||AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter presenter) return;
@@ -256,7 +256,7 @@ internal sealed partial class MainWindow : Window {
     }
     private async Task LoadProject() {
         try {
-            using var importLease=operations.TryEnter(AppOperation.Opening);if(importLease is null)return;Poll();
+            operationError=null;using var importLease=operations.TryEnter(AppOperation.Opening);if(importLease is null)return;Poll();
             var picker=new FileOpenPicker(); picker.FileTypeFilter.Add(".json");
             WinRT.Interop.InitializeWithWindow.Initialize(picker,WinRT.Interop.WindowNative.GetWindowHandle(this));
             var file=await picker.PickSingleFileAsync(); if(file==null) return;
@@ -276,7 +276,7 @@ internal sealed partial class MainWindow : Window {
     }
     private RunProgram Program() {
         if(recordMode)throw new InvalidOperationException("Choose Quick Click or a Project before Run");
-        if(projectMode){if(bundleInspection is not null&&!bundleInspection.CanRun)throw new InvalidOperationException("Partial or native-invalid recordings are inspection only");return project!=null?ProgramCompiler.Project(project):throw new InvalidOperationException("Load a project first");}
+        if(projectMode){if(bundleInspection is not null&&(!bundleInspection.CanRun||savedVideo?.InspectionFailure is not null))throw new InvalidOperationException("Partial or native-invalid recordings are inspection only");return project!=null?ProgramCompiler.Project(project):throw new InvalidOperationException("Load a project first");}
         var chosen=displays.Where(d=>selected.Any(s=>(string)s.Tag==d.Id&&s.IsChecked==true)).ToArray();
         if(chosen.Length==0) throw new InvalidOperationException("Select at least one display");
         var slots=chosen.Select(d=>new MonitorSlot(d.Id,d.Name,d.Geometry)).ToArray();
@@ -336,15 +336,16 @@ internal sealed partial class MainWindow : Window {
         if(recording.Busy||recordMode) {var state=recording.Snapshot;recordingStatus.Text=$"{state.Phase} · {state.Message}\n{state.Destination}\n{state.Recovery}";if(recording.Busy||recordMode)status.Text=state.Message??state.Phase.ToString();}
         retrySave.Visibility=recording.CanRetrySave?Visibility.Visible:Visibility.Collapsed;
         controlsHost.IsEnabled=!Active&&!closingRequested;
-        start.IsEnabled=(!projectMode||bundleInspection?.CanRun!=false)&&!recordMode&&!runStarting&&!recording.Busy&&!closingRequested&&(!Active||snapshot?.State==RunnerState.Paused)&&snapshot?.OwnedButton is null;
+        start.IsEnabled=(!projectMode||(bundleInspection?.CanRun!=false&&savedVideo?.InspectionFailure is null))&&!recordMode&&!runStarting&&!recording.Busy&&!closingRequested&&(!Active||snapshot?.State==RunnerState.Paused)&&snapshot?.OwnedButton is null;
         pause.IsEnabled=snapshot?.State is RunnerState.Armed or RunnerState.Running;
         stop.IsEnabled=recording.Busy||executionLease is not null;stop.Content=snapshot?.OwnedButton is not null||recording.Phase==RecordingUI.WorkspacePhase.CleanupBlocked?"Retry Stop":"Stop";
         previewButton.IsEnabled=!Active&&!recordMode&&!closingRequested;openButton.IsEnabled=openSaved.IsEnabled=!Active&&!closingRequested;
         foreach(var item in navigation.MenuItems.OfType<NavigationViewItem>())item.IsEnabled=!Active&&!closingRequested;
         if(!Active&&!runStarting)emergency.Unregister();
+        if(!recording.Busy&&operationError is not null){status.Text=operationError;if(recordMode)recordingStatus.Text=operationError;}
         savedVideo?.PollPosition();if(recording.Phase==RecordingUI.WorkspacePhase.Recording)_=PollRecordingAsync();
     }
-    private async Task Error(string text) { status.Text=text;if(Active||closingRequested)return; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
+    private async Task Error(string text) { operationError=text;status.Text=text;if(Active||closingRequested)return; if(Content is FrameworkElement root) await new ContentDialog { Title="Motion Clicker",Content=text,CloseButtonText="OK",XamlRoot=root.XamlRoot }.ShowAsync(); }
     private async void Identify() {
         if(Active)return;
         foreach(var old in identifiers) old.Close(); identifiers.Clear();

@@ -39,7 +39,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
     public Task RecordAsync(RecordingTarget[] targets,string destination,int countdownSeconds) {
         lock(sync) {
             if(targets.Length==0||targets.Select(t=>t.Slot.Id).Distinct(StringComparer.Ordinal).Count()!=targets.Length||string.IsNullOrWhiteSpace(destination)||Path.GetExtension(destination)!=".motionclicker"||countdownSeconds<0||countdownSeconds>60)
-                throw new RecordingException("Choose displays, a new .motionclicker destination and a countdown from0 to60seconds");
+                throw new RecordingException("Choose displays, a new .motionclicker destination and a countdown from 0 to 60 seconds");
             if(Busy||lease is not null)throw new RecordingException("Stop the current operation first");
             lease=operations.TryEnter(AppOperation.Recording)??throw new RecordingException("Stop execution or inspection first");
             cancellation=new();take=null;stopping=null;retrying=null;saveRetryEligible=false;retryCompleted=false;snapshot=new(WorkspacePhase.Preparing,destination,null,null);
@@ -83,7 +83,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
             if(result is null)Set(failure is null?WorkspacePhase.Idle:WorkspacePhase.Failed,failure??reason,await RecoveryOfTake());
             else {
                 retryCompleted=result.Completed&&reason is null;
-                Set(WorkspacePhase.Saving,"Native capture stopped · committing project.json…");
+                Set(WorkspacePhase.Saving,"Native capture stopped · saving your project…");
                 try { await take!.SaveAsync(Destination!,CancellationToken.None).ConfigureAwait(false);Set(result.Completed&&reason is null?WorkspacePhase.Saved:WorkspacePhase.Partial,failure??reason??"Saved · open to inspect original source video"); }
                 catch(Exception error) { saveRetryEligible=true;Set(WorkspacePhase.Failed,"Save failed: "+error.Message,await RecoveryOfTake()); }
             }
@@ -108,7 +108,7 @@ public sealed class RecordingWorkspace(IRecordingWorkspaceServices services,AppO
         lock(sync) {
             if(!CanRetrySave||take is null||lease is not null)throw new RecordingException("No stopped initial save is available to retry");
             lease=operations.TryEnter(AppOperation.Recording)??throw new RecordingException("Finish the current app operation first");
-            Set(WorkspacePhase.Saving,"Retrying initial project commit · source bytes stay unchanged…");
+            Set(WorkspacePhase.Saving,"Retrying initial save · original video stays unchanged…");
             return retrying=RetrySaveCoreAsync();
         }
     }
