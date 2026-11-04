@@ -97,6 +97,7 @@ static class Probe
                 await ControllerChecks.Run(directory,bytes).WaitAsync(TimeSpan.FromSeconds(45));
             } catch(Exception error) { failures.Add("controller: "+error); }
             try { await PlaybackChecks.Run(directory); } catch(Exception error) { failures.Add("playback: "+error);Console.WriteLine("FAIL playback: "+error); }
+            try { await VideoInspectionChecks.Run(directory); } catch(Exception error) { failures.Add("inspection: "+error);Console.WriteLine("FAIL inspection: "+error); }
             if(failures.Count>0)throw new Exception(string.Join("\n",failures));
         }
         finally { Directory.Delete(directory,true); }
