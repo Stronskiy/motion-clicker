@@ -241,3 +241,20 @@ Open, target mutation and restart stay unavailable. Retry Stop and the emergency
 route retry only SafeRunner's owned release. The gate and hotkey are relinquished
 only after acknowledgment; an ordinary failed Run without ownership may release
 the gate. Start-error cleanup and quit follow the same ownership rule.
+
+Saved playback does not treat `StreamManifest.gaps` as complete: it is only the
+first64-record preview. An actor scans the validated snapshot's read-only
+`gapsFile` on demand, checks complete per-stream counts/ranges/preview prefix,
+and returns a monitor-specific clear or known-gap interval. Reads are64KiB with
+a1MiB record limit; memory retains per-monitor counts and at most one covering
+gap, not the full journal. Playback caches only the inspected interval and
+coalesces seeks/playback/monitor changes into one in-flight query. Until a window
+for the actual monitor/time is ready, or on lookup failure, video is explicitly
+hidden. Leading/trailing/no-media intervals remain explicit. This adds no wire
+fields, no writer or input backend, and never writes source evidence.
+Forward playback is additionally limited by AVPlayerItem.forwardPlaybackEndTime
+to the inspected clear interval's end, mapped through mediaTimeZeroUs. The native
+end notification pauses and masks that boundary; the display ticker is not used
+to enforce gap timing. Playback does not automatically skip known-loss intervals;
+the user may seek to another available source interval. This is read-only player
+configuration, not a media edit or source-time change.

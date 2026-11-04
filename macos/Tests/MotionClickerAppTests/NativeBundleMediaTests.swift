@@ -66,7 +66,50 @@ import MotionClickerRecording
             catch { XCTAssertTrue(String(describing:error).contains("origin/count/duration")) }
         }
     }
-    private func generatedBundle() async throws -> URL {
+    func testGeneratedNativeBundleMasksJournalOnly65thGapWithoutChangingSources() async throws {
+        let root=try await generatedBundle(gapCount:65)
+        defer { if ProcessInfo.processInfo.environment["MOTIONCLICKER_GENERATED_FIXTURE_OUT"] == nil { try? FileManager.default.removeItem(at:root.deletingLastPathComponent()) } }
+        let before=try bytes(root), opened=try await BundleIO.open(root)
+        XCTAssertTrue(opened.executable,opened.mediaError ?? "No native evidence")
+        XCTAssertEqual(opened.snapshot.manifest.streams.first?.gaps.count,64)
+        XCTAssertEqual(opened.snapshot.manifest.streams.first?.gapCount,65)
+        let lookup=CompleteGapLookup(snapshot:opened.snapshot)
+        let first=try XCTUnwrap(opened.snapshot.media.first), second=try XCTUnwrap(opened.snapshot.media.last)
+        let journalOnly=try await lookup.window(monitorSlotId:first.monitorSlotId,sourceUs:2_765_000)
+        XCTAssertEqual(journalOnly.kind,.backpressure)
+        let clear=try await lookup.window(monitorSlotId:first.monitorSlotId,sourceUs:2_745_000)
+        XCTAssertEqual(clear.endUs,2_760_000)
+        let end=try XCTUnwrap(SourcePlaybackTime.playbackEndPTS(media:first,window:clear,sourceUs:2_745_000))
+        XCTAssertNil(SourcePlaybackTime.playbackEndPTS(media:first,window:journalOnly,sourceUs:2_765_000))
+        let item=AVPlayerItem(url:first.file), player=AVPlayer()
+        item.forwardPlaybackEndTime=CMTime(value:end,timescale:1_000_000)
+        player.actionAtItemEnd = .pause; player.replaceCurrentItem(with:item)
+        let sought=await player.seek(to:CMTime(value:2_745_000,timescale:1_000_000),toleranceBefore:.zero,toleranceAfter:.zero)
+        XCTAssertTrue(sought)
+        let readyClock=_Concurrency.ContinuousClock(), readyDeadline=_Concurrency.ContinuousClock().now.advanced(by:.seconds(10))
+        while item.status == .unknown && readyClock.now < readyDeadline { try await Task.sleep(for:.milliseconds(10)) }
+        XCTAssertEqual(item.status,.readyToPlay)
+        player.play()
+        let stopDeadline=readyClock.now.advanced(by:.seconds(10))
+        while player.rate != 0 && readyClock.now < stopDeadline { try await Task.sleep(for:.milliseconds(10)) }
+        XCTAssertEqual(player.rate,0)
+        let stoppedUs=CMTimeConvertScale(player.currentTime(),timescale:1_000_000,method:.roundHalfAwayFromZero).value
+        XCTAssertEqual(stoppedUs,end,"Native playback must stop before the journal-only gap")
+        player.pause(); player.replaceCurrentItem(with:nil)
+        let other=try await lookup.window(monitorSlotId:second.monitorSlotId,sourceUs:2_765_000)
+        XCTAssertNil(other.kind)
+        XCTAssertEqual(SourcePlaybackTime.playbackEndPTS(media:second,window:other,sourceUs:2_765_000),2_500_000)
+        let mask=SourceGapInspection(lookup:lookup)
+        mask.request(media:first,sourceUs:2_765_000)
+        let clock=_Concurrency.ContinuousClock(), deadline=_Concurrency.ContinuousClock().now.advanced(by:.seconds(3))
+        while mask.isLoading && clock.now < deadline { try await Task.sleep(for:.milliseconds(1)) }
+        XCTAssertTrue(mask.unavailable(media:first,sourceUs:2_765_000)?.contains("backpressure") == true)
+        XCTAssertTrue(mask.unavailable(media:second,sourceUs:1_000_000)?.contains("first image") == true)
+        XCTAssertTrue(mask.unavailable(media:second,sourceUs:4_000_000)?.contains("valid video prefix") == true)
+        XCTAssertEqual(try bytes(root),before)
+        mask.cancel()
+    }
+    private func generatedBundle(gapCount:Int = 0) async throws -> URL {
         let requested=ProcessInfo.processInfo.environment["MOTIONCLICKER_GENERATED_FIXTURE_OUT"]
         let parent=FileManager.default.temporaryDirectory.appendingPathComponent("motion-media-"+UUID().uuidString)
         try FileManager.default.createDirectory(at:parent,withIntermediateDirectories:false)
@@ -102,6 +145,10 @@ import MotionClickerRecording
             let terminal=await withCheckedContinuation { c in writer.finish { c.resume(returning:$0) } }
             XCTAssertNil(terminal.error)
             try session.acceptedFrame(monitorSlotId:target.slot.id,sourceTicks:1_000_000+offset,encodedTimeUs:0,durationUs:duration)
+        }
+        for index in 0..<gapCount {
+            let start=1_200_000+Int64(index)*40_000
+            try session.reportGap(monitorSlotId:targets[0].slot.id,startTicks:start,endTicks:start+10_000,kind:.backpressure,reason:"Generated known-loss interval")
         }
         try session.receive(event:.init(hostTimeUs:3_000_000,nativePosition:.init(x:40,y:50),kind:.move))
         try session.stop(hostTimeUs:5_000_000)

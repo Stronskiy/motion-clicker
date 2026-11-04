@@ -10,17 +10,18 @@ struct SavedVideoView: View {
     @State private var player = AVPlayer()
     @State private var sourceUs: Double = 0
     @State private var scrubbing = false
+    @State private var gaps:SourceGapInspection
+    @State private var playbackEndSourceUs:Int64?
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-    private var stream: StreamManifest? { bundle.snapshot.manifest.streams.first { $0.monitorSlotId == selected } }
     private var media: RecordedBundleMedia? { bundle.snapshot.media.first { $0.monitorSlotId == selected } }
+    init(bundle:InspectedBundle) {
+        self.bundle=bundle
+        _gaps=State(initialValue:SourceGapInspection(lookup:CompleteGapLookup(snapshot:bundle.snapshot)))
+    }
     private var unavailable: String? {
         guard bundle.mediaError == nil else { return "Source video did not pass native validation." }
         guard let media else { return "No successful video for this monitor." }
-        let time=SourcePlaybackTime.sourceUs(sourceUs)
-        if time < media.mediaTimeZeroUs { return "No source image yet · first image at \(Double(media.mediaTimeZeroUs)/1_000_000) s" }
-        if time >= media.mediaTimeZeroUs + media.encodedDurationUs { return "No source image after the valid video prefix." }
-        if let gap=stream?.gaps.first(where: { time >= $0.startUs && time < $0.endUs }) { return "Known video gap: \(gap.kind.rawValue)" }
-        return nil
+        return gaps.unavailable(media:media,sourceUs:SourcePlaybackTime.sourceUs(sourceUs))
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -40,7 +41,7 @@ struct SavedVideoView: View {
                 }
             }.frame(minHeight: 200, idealHeight: 270, maxHeight: 340).clipShape(RoundedRectangle(cornerRadius: 8))
             HStack {
-                Button { if player.rate == 0 { player.play() } else { player.pause() } } label: { Label("Play / Pause", systemImage: "playpause") }
+                Button(action:togglePlayback) { Label("Play / Pause", systemImage: "playpause") }
                     .disabled(unavailable != nil)
                 Text("Source \(sourceUs/1_000_000, specifier: "%.3f") / \(Double(bundle.snapshot.manifest.durationUs)/1_000_000, specifier: "%.3f") s").font(.caption).monospacedDigit()
             }
@@ -75,7 +76,13 @@ struct SavedVideoView: View {
         }
         .onAppear { selected=bundle.snapshot.manifest.targets.first?.id ?? ""; replaceSource() }
         .onChange(of: selected) { _,_ in replaceSource() }
-        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil) }
+        .onChange(of: sourceUs) { _,_ in inspectGaps() }
+        .onChange(of:gaps.window) { _,_ in configurePlaybackEnd() }
+        .onReceive(NotificationCenter.default.publisher(for:AVPlayerItem.didPlayToEndTimeNotification).receive(on:DispatchQueue.main)) { notification in
+            guard let item=notification.object as? AVPlayerItem, item === player.currentItem, let end=playbackEndSourceUs else { return }
+            player.pause(); sourceUs=Double(end); inspectGaps()
+        }
+        .onDisappear { player.pause(); player.replaceCurrentItem(with: nil); gaps.cancel() }
         .onReceive(ticker) { _ in
             guard !scrubbing, player.rate != 0, let media else { return }
             let time=player.currentTime()
@@ -84,11 +91,33 @@ struct SavedVideoView: View {
         }
     }
     private func replaceSource() {
-        player.pause()
+        player.pause(); playbackEndSourceUs=nil
+        player.actionAtItemEnd = .pause
         player.replaceCurrentItem(with: bundle.mediaError == nil ? media.map { AVPlayerItem(url: $0.file) } : nil)
         seek()
     }
+    private func inspectGaps() {
+        if let media { gaps.request(media:media,sourceUs:SourcePlaybackTime.sourceUs(sourceUs)) }
+        else { gaps.cancel() }
+    }
+    private func togglePlayback() {
+        if player.rate != 0 { player.pause(); return }
+        configurePlaybackEnd()
+        guard unavailable == nil, playbackEndSourceUs != nil else { return }
+        player.play()
+    }
+    private func configurePlaybackEnd() {
+        guard unavailable == nil, let media,
+              let end=SourcePlaybackTime.playbackEndPTS(media:media,window:gaps.window,sourceUs:SourcePlaybackTime.sourceUs(sourceUs)) else {
+            player.pause(); playbackEndSourceUs=nil; return
+        }
+        playbackEndSourceUs=media.mediaTimeZeroUs+end
+        player.currentItem?.forwardPlaybackEndTime=CMTime(value:end,timescale:1_000_000)
+    }
     private func seek() {
+        player.pause(); playbackEndSourceUs=nil
+        player.currentItem?.forwardPlaybackEndTime = .invalid
+        inspectGaps()
         guard let media else { return }
         let pts=SourcePlaybackTime.filePTS(sourceUs:SourcePlaybackTime.sourceUs(sourceUs),mediaOffsetUs:media.mediaTimeZeroUs,durationUs:media.encodedDurationUs)
         player.seek(to: CMTime(value: pts,timescale:1_000_000),toleranceBefore:.zero,toleranceAfter:.zero)
