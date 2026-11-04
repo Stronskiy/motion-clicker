@@ -28,7 +28,7 @@ public sealed class WindowsRecordingLifecycleTests
         internal Action<string>? Fault;
         internal readonly Dictionary<string,Source> Sources=[];
         internal readonly Dictionary<string,Action<WindowsVideoFrame>> Images=[];
-        internal bool EncoderFails;
+        internal bool EncoderFails,EncoderClosureUnknown;
         internal int Encoders,Finishes;
         public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)=>targets.Select(t=>new WindowsRecordingDisplay(t.Slot.Id,t.Display.Id,400,200)).ToArray();
         public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)
@@ -42,7 +42,7 @@ public sealed class WindowsRecordingLifecycleTests
         {
             private long count,end,zero;
             public void Append(byte[] bgra,long sourceTicks,long durationTicks){if(platform.EncoderFails)throw new IOException("encoder/disk failure");if(count==0)zero=sourceTicks;count++;end=sourceTicks-zero+durationTicks;File.WriteAllBytes(path,[1,2,3]);}
-            public NativeWriterResult Finish(){Interlocked.Increment(ref platform.Finishes);return new(count>0,count,end,count>0?null:"No captured images");}
+            public NativeWriterResult Finish(){Interlocked.Increment(ref platform.Finishes);return new(count>0,count,end,count>0?null:"No captured images",!platform.EncoderClosureUnknown);}
             public void Dispose() { }
         }
         internal void Frame(long hostUs)=>Image!(new(new byte[400*200*4],hostUs*10));
@@ -179,6 +179,26 @@ public sealed class WindowsRecordingLifecycleTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>f.Controller.PrepareAsync([RecordingSessionTests.Targets()[0]],f.Root,"take",cancel.Token));
         Assert.Null(await f.Controller.StopAsync());Assert.Equal("prior save",File.ReadAllText(old));
         Assert.Equal(0,f.Platform.Video.Starts);Assert.Equal(0,f.Platform.Hook.Starts);
+    }
+    [Fact] public async Task UnknownEncoderClosureCannotPublishEvenAfterSuccessfulAppend()
+    {
+        await using var f=new Fixture();f.Platform.EncoderClosureUnknown=true;await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StopAsync());
+        var recovery=(await f.Controller.RecoveryAsync())!;
+        Assert.False(recovery.MediaPublished);Assert.False(recovery.ManifestPublished);Assert.True(Directory.Exists(recovery.StagingPath));
+    }
+    [Fact] public async Task NativeProducerClosureHasBoundedWaitAndDoesNotDisposeLiveWork()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        f.Platform.Video.AutoClose=false;Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        var elapsed=System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<RecordingException>(()=>f.Controller.StopAsync().WaitAsync(TimeSpan.FromSeconds(13)));
+        Assert.InRange(elapsed.Elapsed.TotalSeconds,9,13);Assert.False(f.Platform.Video.Closed.IsCompleted);
+        Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
+        f.Platform.Video.ClosedSignal.TrySetResult();
     }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
