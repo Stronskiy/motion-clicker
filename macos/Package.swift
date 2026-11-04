@@ -6,9 +6,11 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [.library(name: "MotionClickerCore", targets: ["MotionClickerCore"]),
                .library(name: "MotionClickerMacRecording", targets: ["MotionClickerMacRecording"]),
+               .executable(name: "MotionClickerFixture", targets: ["MotionClickerFixture"]),
                .executable(name: "MotionClicker", targets: ["MotionClickerApp"])],
     targets: [
         .target(name: "MotionClickerFixtureSupport"),
+        .executableTarget(name: "MotionClickerFixture", dependencies: ["MotionClickerFixtureSupport"]),
         .testTarget(name: "MotionClickerFixtureTests", dependencies: ["MotionClickerFixtureSupport"]),
         .target(name: "MotionClickerCore"),
         .target(name: "MotionClickerRuntime", dependencies: ["MotionClickerCore"]),
