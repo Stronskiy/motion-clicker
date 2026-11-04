@@ -442,5 +442,23 @@
       "packetTimestamp": "4294967296",
       "ownerDelayUs": 500000
     }
+  },
+  {
+    "hostTimeUs": 1000010,
+    "nativePosition": {
+      "x": 1,
+      "y": 1
+    },
+    "kind": "move",
+    "isOwnInjected": false,
+    "isControl": false,
+    "timing": {
+      "basis": "nativeHostObservation",
+      "hostClock": "machAbsolute",
+      "packetClock": "cgEventTimestamp",
+      "packetUnits": "nanoseconds",
+      "packetTimestamp": "1\n",
+      "ownerDelayUs": 500000
+    }
   }
 ]
