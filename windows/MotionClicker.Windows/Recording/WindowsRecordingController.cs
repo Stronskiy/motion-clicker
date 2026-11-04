@@ -15,6 +15,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         internal readonly WindowsImageMailbox Mailbox=new();
         internal string? SourceFailure;
         internal bool Terminal;
+        internal long AcknowledgedCount;
         internal int StopSignaled;
     }
     internal const long DeadlineUs=10_000_000;
@@ -256,13 +257,10 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
     }
     private void Drain()
     {
+        DrainAcknowledgments();
         foreach(var stream in streams)
         {
             if(stream.Encoder is null)continue;
-            while(stream.Encoder.TryAcknowledge(out var frame))
-            {
-                var metadata=frame!;session?.AcceptedFrame(stream.Target.Slot.Id,metadata.SourceTicks,metadata.EncodedTicks/10,metadata.DurationTicks/10);accepted++;
-            }
             if(epoch<0)continue;
             var batch=stream.Mailbox.Drain();var image=batch.Image;var loss=batch.LossTicks;
             var reason=batch.LossReason??"Capture admission loss";
@@ -276,6 +274,19 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
             var captured=pointerAdapter.Convert(sample,epoch,platform.NowUs);
             if(captured is not null)session!.Receive(captured);
             if(session!.State==RecordingState.Finalizing)Interrupt("Pointer ownership or persistence interrupted recording");
+        }
+    }
+    private void DrainAcknowledgments()
+    {
+        foreach(var stream in streams)
+        {
+            if(stream.Encoder is null)continue;
+            while(stream.Encoder.TryAcknowledge(out var frame))
+            {
+                var metadata=frame!;
+                session?.AcceptedFrame(stream.Target.Slot.Id,metadata.SourceTicks,metadata.EncodedTicks/10,metadata.DurationTicks/10);
+                stream.AcknowledgedCount=checked(stream.AcknowledgedCount+1);accepted=checked(accepted+1);
+            }
         }
     }
     private bool NativeClosed()=>streams.All(s=>s.Source is null||s.Source.Closed.IsCompleted)&&(pointer is null||pointer.Closed.IsCompleted);
@@ -322,8 +333,13 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         }
         try
         {
+            // Closed is published after the worker's last acknowledgment. This
+            // second drain exploits that ordering, closing the empty-drain race.
+            DrainAcknowledgments();
             if(streams.Any(s=>s.Encoder is not null&&!s.Encoder.Closed.GetAwaiter().GetResult().ClosureConfirmed))
             {Quarantine("Native encoder closure failed");return;}
+            if(streams.Any(s=>s.Encoder is not null&&s.Encoder.Closed.GetAwaiter().GetResult().FrameCount!=s.AcknowledgedCount))
+            {Quarantine("Native encoder frame count does not match accepted acknowledgments");return;}
             if(epoch>=0)
             {
                 foreach(var stream in streams)
