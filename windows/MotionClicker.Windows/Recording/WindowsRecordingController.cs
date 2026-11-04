@@ -10,7 +10,7 @@ public sealed partial class WindowsRecordingController : IAsyncDisposable
         internal readonly RecordingTarget Target=target;
         internal readonly WindowsRecordingDisplay Display=display;
         internal IWindowsEncoderWorker Encoder=null!;
-        internal IWindowsRecordingSource? Source;
+        internal IWindowsCaptureSource? Source;
         internal WindowsStreamTimeline? Timeline;
         internal readonly WindowsImageMailbox Mailbox=new();
         internal string? SourceFailure;

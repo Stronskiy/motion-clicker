@@ -12,7 +12,7 @@ using WinRT;
 
 namespace MotionClicker.Windows.Recording;
 
-internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault) : IWindowsRecordingSource
+internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault) : IWindowsCaptureSource
 {
     private readonly TaskCompletionSource ready=new(TaskCreationOptions.RunContinuationsAsynchronously),closed=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ManualResetEventSlim stopSignal=new(false);
@@ -20,6 +20,7 @@ internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,
     private int started,stop,callbacks,copying;
     public Task Ready=>ready.Task;
     public Task Closed=>closed.Task;
+    public void BeginEpoch(long epochHostUs) { }
     public void Start()
     {
         if(Interlocked.Exchange(ref started,1)!=0)throw new RecordingException("Capture source already started");

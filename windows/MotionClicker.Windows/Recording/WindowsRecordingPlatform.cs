@@ -21,6 +21,10 @@ internal interface IWindowsPointerSource : IWindowsRecordingSource
 {
     void Probe(long nowUs);
 }
+internal interface IWindowsCaptureSource : IWindowsRecordingSource
+{
+    void BeginEpoch(long epochHostUs);
+}
 internal interface IWindowsVideoEncoder : IDisposable
 {
     void Append(byte[] bgra,long sourceTicks,long durationTicks);
@@ -30,7 +34,7 @@ internal interface IWindowsRecordingPlatform
 {
     long NowUs { get; }
     WindowsRecordingDisplay[] Validate(RecordingTarget[] targets);
-    IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault);
+    IWindowsCaptureSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault);
     IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault);
     IWindowsVideoEncoder Encoder(string path,int width,int height);
 }

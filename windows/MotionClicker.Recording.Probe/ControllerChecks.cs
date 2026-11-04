@@ -5,7 +5,7 @@ using MotionClicker.Windows.Recording;
 // Actual serial owner + bounded workers + native MF + publication, generated pixels only.
 static class ControllerChecks
 {
-    private sealed class Source : IWindowsPointerSource
+    private sealed class Source : IWindowsPointerSource,IWindowsCaptureSource
     {
         private readonly TaskCompletionSource closed=new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Ready=>Task.CompletedTask;
@@ -13,6 +13,7 @@ static class ControllerChecks
         public void Start() { }
         public void RequestStop()=>closed.TrySetResult();
         public void Probe(long nowUs) { }
+        public void BeginEpoch(long epochHostUs) { }
     }
     private sealed class Platform : IWindowsRecordingPlatform
     {
@@ -20,7 +21,7 @@ static class ControllerChecks
         internal Action<WindowsVideoFrame> Image=null!;
         public long NowUs=>Interlocked.Read(ref Now);
         public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)=>[new("screen","generated-only",64,64)];
-        public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault){Image=image;return new Source();}
+        public IWindowsCaptureSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault){Image=image;return new Source();}
         public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault)=>new Source();
         public IWindowsVideoEncoder Encoder(string path,int width,int height)=>new NativeVideoWriter(path,width,height);
     }

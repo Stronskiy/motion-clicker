@@ -56,7 +56,7 @@ internal sealed class NativeWindowsRecordingPlatform(nuint ownInjectedTag) : IWi
             throw new RecordingException("Frozen monitor identity, bounds, scaling or rotation changed");
         return(found,selected);
     }
-    public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)=>
+    public IWindowsCaptureSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)=>
         new NativeWgcSource(target,frozenMonitors[target.Display.Id],image,drop,fault);
     public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault)=>new NativePointerSource(frequency,ownInjectedTag,sample,fault);
     public IWindowsVideoEncoder Encoder(string path,int width,int height)=>new NativeVideoWriter(path,width,height);

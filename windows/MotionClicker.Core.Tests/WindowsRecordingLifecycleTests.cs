@@ -6,17 +6,19 @@ namespace MotionClicker.Core.Tests;
 
 public sealed class WindowsRecordingLifecycleTests
 {
-    private sealed class Source : IWindowsPointerSource
+    private sealed class Source : IWindowsPointerSource,IWindowsCaptureSource
     {
         internal readonly TaskCompletionSource ReadySignal=new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource ClosedSignal=new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal bool AutoReady=true,AutoClose=true;
         internal int Starts,Stops;
+        internal long? Epoch;
         public Task Ready=>ReadySignal.Task;
         public Task Closed=>ClosedSignal.Task;
         public void Start(){Starts++;if(AutoReady)ReadySignal.TrySetResult();}
         public void RequestStop(){Stops++;if(AutoClose)ClosedSignal.TrySetResult();}
         public void Probe(long nowUs) { }
+        public void BeginEpoch(long epochHostUs)=>Epoch=epochHostUs;
     }
     private sealed class Platform : IWindowsRecordingPlatform
     {
@@ -33,7 +35,7 @@ public sealed class WindowsRecordingLifecycleTests
         internal bool EncoderFails,EncoderClosureUnknown;
         internal int Encoders,Finishes;
         public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)=>targets.Select(t=>new WindowsRecordingDisplay(t.Slot.Id,t.Display.Id,400,200)).ToArray();
-        public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)
+        public IWindowsCaptureSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)
         {
             Image??=image;Fault=fault;Drop=drop;Images.Add(target.Slot.Id,image);
             var source=Sources.Count==0?Video:new Source();Sources.Add(target.Slot.Id,source);return source;
@@ -122,6 +124,7 @@ public sealed class WindowsRecordingLifecycleTests
         await using var f=new Fixture();f.Platform.Hook.AutoReady=false;await f.Prepare();
         var start=f.Controller.StartAsync();await Task.Delay(30);Assert.False(start.IsCompleted);
         f.Platform.Hook.ReadySignal.TrySetResult();await WaitForState(f.Controller,RecordingState.Recording);
+        Assert.Equal(1_000_000,f.Platform.Video.Epoch);
         f.Platform.Frame(999_999);await Task.Delay(20);Assert.False(start.IsCompleted);
         f.Platform.Frame(1_050_000);await start.WaitAsync(TimeSpan.FromSeconds(3));
         Interlocked.Exchange(ref f.Platform.Now,1_100_000);var done=await f.Controller.StopAsync();
