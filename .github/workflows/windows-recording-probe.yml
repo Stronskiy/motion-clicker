@@ -19,9 +19,9 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           global-json-file: windows/global.json
-      - name: Bootstrap pinned probe dependency lock (initial resolution only)
+      - name: Restore locked probe dependencies
         run: |
-          dotnet restore MotionClicker.Recording.Probe/MotionClicker.Recording.Probe.csproj | Tee-Object probe-restore.log
+          dotnet restore MotionClicker.Recording.Probe/MotionClicker.Recording.Probe.csproj --locked-mode | Tee-Object probe-restore.log
           exit $LASTEXITCODE
       - name: Generated device, surface, H264 and native readback (no screen or input)
         run: |

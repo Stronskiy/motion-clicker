@@ -85,7 +85,7 @@ static class Probe
         profile.Video.FrameRate.Numerator=30;profile.Video.FrameRate.Denominator=1;
         var folder=await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(path)!);
         var file=await folder.CreateFileAsync(Path.GetFileName(path),CreationCollisionOption.FailIfExists);
-        using var output=await file.OpenAsync(FileAccessMode.ReadWrite);
+        using var output=await file.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite);
         var transcoder=new MediaTranscoder { HardwareAccelerationEnabled=false };
         var prepared=await transcoder.PrepareMediaStreamSourceTranscodeAsync(source,output,profile);
         if(!prepared.CanTranscode) throw new Exception($"Required H264 unavailable: {prepared.FailureReason}");
