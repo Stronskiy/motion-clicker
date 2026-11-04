@@ -56,6 +56,11 @@ static class Probe
                 ("late",[50_000_000,50_333_333],[333333,333333])
             };
             List<string> failures=[];
+            try {
+                var path=Path.Combine(directory,"asymmetric.mp4");
+                await Task.Run(()=>WriterChecks.Encode(path,PixelChecks.Pattern(),[0],[333333])).WaitAsync(TimeSpan.FromSeconds(45));
+                PixelChecks.DecodeAndCheck(path);
+            } catch(Exception error) { failures.Add("decoded orientation: "+error);Console.WriteLine("FAIL decoded orientation: "+error.Message); }
             foreach(var test in cases)
             {
                 var path=Path.Combine(directory,$"{test.Name}.mp4");

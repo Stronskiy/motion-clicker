@@ -132,6 +132,30 @@ No prior save is overwritten and failed publication retains store recovery paths
 
 ## Clock and pointer rules
 
+### Fix round1 source admission, pixel layout and terminal ordering
+
+Each native capture generation admits the earliest genuine frame in each exact
+source-QPC bucket `floor(sourceTicks * 30 / 10000000)` using Int128. Bucket zero is
+the fixed native source-domain zero, never first arrival or a per-display origin.
+The common epoch is signaled to each capture source after portable Begin; preepoch
+frames do not occupy a bucket. Selection occurs before GPU/CPU copy and bounded
+handoff, preserves original selected PTS verbatim, and creates no frame, gap or
+drop counter for intentionally unselected updates. This policy covers Windows11
+22000 without MinUpdateInterval; the implementation does not depend on that
+26100-only optimization. VFR/static durations and actual admitted-frame loss
+remain timeline behavior, including sparse continuation rejection.
+
+RGB32 input is contiguous top-down BGRA with explicit positive
+MF_MT_DEFAULT_STRIDE = width * 4, verified before SetInputMediaType. Generated
+asymmetric encoded video must be decoded and spatial/channel placement checked,
+with lossy tolerance, independently of coded PTS/count tests.
+
+After observing every encoder Closed task complete, owner drains acknowledgments
+again before any WriterFinished. Each source's accepted acknowledgment count must
+equal its native terminal FrameCount; mismatch quarantines before publication.
+The internal worker boundary is injectable for deterministic closure/admission
+tests. No new public controller API or recording wire field is introduced.
+
 QPC host microseconds use signed Int128 rational arithmetic and checked Int64
 results, flooring negative fractions. QueryPerformanceFrequency must be positive.
 No Stopwatch floating-point conversion or wallclock anchor is used. WGC
