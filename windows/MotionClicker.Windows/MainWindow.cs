@@ -86,7 +86,7 @@ internal sealed partial class MainWindow : Window {
         Content=navigation;
         navigation.MenuItems.Add(new NavigationViewItem { Content="Quick Click",Icon=new SymbolIcon(Symbol.TouchPointer),Tag="quick" });
         navigation.MenuItems.Add(new NavigationViewItem { Content="Project",Icon=new SymbolIcon(Symbol.Document),Tag="project" });
-        navigation.SelectionChanged+=(_,args)=> { projectMode=(args.SelectedItemContainer?.Tag as string)=="project";recordMode=(args.SelectedItemContainer?.Tag as string)=="record";savedVideo?.StopPlayback();RenderControls(); };
+        navigation.SelectionChanged+=(_,args)=> { projectMode=(args.SelectedItemContainer?.Tag as string)=="project";recordMode=(args.SelectedItemContainer?.Tag as string)=="record";if(projectMode)savedVideo?.ResumeInspection();else savedVideo?.StopPlayback();preview.ItemsSource=null;previewEmpty.Visibility=Visibility.Visible;RenderControls(); };
         var shell=new Grid(); shell.RowDefinitions.Add(new RowDefinition { Height=new GridLength(1,GridUnitType.Star) }); shell.RowDefinitions.Add(new RowDefinition { Height=GridLength.Auto });
         navigation.Content=shell;
         workspace.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(1,GridUnitType.Star) }); workspace.ColumnDefinitions.Add(new ColumnDefinition { Width=new GridLength(290) });

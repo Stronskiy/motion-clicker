@@ -116,6 +116,7 @@ internal sealed class SavedVideoPanel : StackPanel,IDisposable {
         if(window is null||!window.Contains(currentMedia.MonitorSlotId,value)){SetPosition(value);Mask("End of the inspected interval · seek to inspect another time");return;}
         SetPosition(value);
     }
+    public void ResumeInspection()=>Request(sourceUs,false);
     public void StopPlayback(){generation++;latest=null;player?.Pause();}
     private void ReleasePlayer(){surface.SetMediaPlayer(null);if(player is not null){player.Source=null;player.Dispose();player=null;}source?.Dispose();source=null;}
     public void Dispose(){if(disposed)return;disposed=true;generation++;latest=null;closing.Cancel();ReleasePlayer();}

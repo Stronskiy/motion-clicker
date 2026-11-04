@@ -109,8 +109,8 @@ internal sealed partial class MainWindow {
         var task=BundleInspection.OpenAsync(path,token);openingTask=task;
         var opened=await task;
         if(token.IsCancellationRequested||closingRequested)return;
-        savedVideo?.Dispose();bundleInspection=opened;project=opened.Project;projectName=Path.GetFileName(path);mapping.Clear();savedVideo=new(opened);
-        projectMode=true;recordMode=false;navigation.SelectedItem=navigation.MenuItems[1];RenderControls();
+        savedVideo?.Dispose();bundleInspection=opened;project=opened.Project;projectName=Path.GetFileName(path);mapping.Clear();
+        projectMode=true;recordMode=false;navigation.SelectedItem=navigation.MenuItems[1];savedVideo=new(opened);RenderControls();
         status.Text=opened.CanRun?"Source validated. Map every display explicitly before Run.":"Inspection only · partial or unsupported source cannot run.";
     }
     private async Task CompleteCloseAsync() {
