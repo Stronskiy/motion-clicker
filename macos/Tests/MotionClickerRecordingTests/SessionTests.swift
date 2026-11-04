@@ -20,8 +20,8 @@ func recordingTargets() -> [RecordingTarget] {
         return RecordingTarget(slot: MonitorSlot(id: id, name: id, geometry: geometry), display: RuntimeDisplay(id: "native-" + id, name: id, geometry: geometry, nativeBounds: Rect(origin: Point(x: x, y: 0), size: Size(width: 400, height: 200))))
     }
 }
-func readySession(_ journal: MemoryJournal, epochHostUs: Int64 = 1000000) throws -> RecordingSession {
-    let s = try RecordingSession(takeId: "take", targets: recordingTargets(), journal: journal)
+func readySession(_ journal: MemoryJournal, epochHostUs: Int64 = 1000000, pointerTimingBasis: PointerTimingBasis? = nil) throws -> RecordingSession {
+    let s = try RecordingSession(takeId: "take", targets: recordingTargets(), journal: journal, pointerTimingBasis: pointerTimingBasis)
     for id in ["left", "right"] { try s.sourceReady(monitorSlotId: id, clock: ClockAnchor(sourceAnchorTicks: 0, hostAnchorUs: 1000000, ticksPerSecond: 1000000)) }
     try s.eventTapReady(); try s.begin(epochHostUs: epochHostUs)
     return s
@@ -40,15 +40,18 @@ final class SessionTests: XCTestCase {
     struct Case: Decodable {
         let name: String; let events: [CapturedPointerEvent]; let state: RecordingState
         let rawCount, projectedCount, incompleteCount: Int; let sourceFailure: Bool
+        let pointerTimingBasis: PointerTimingBasis?
     }
     func testSharedDragInterruptionAndSourceLossFixtures() throws {
         let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("contracts/fixtures/recording/sessions.json")
         for c in try JSONDecoder().decode([Case].self, from: Data(contentsOf: path)) {
-            let j = MemoryJournal(), s = try readySession(j); try frames(s)
+            let j = MemoryJournal(), s = try readySession(j, pointerTimingBasis: c.pointerTimingBasis); try frames(s)
             for e in c.events { try s.receive(event: e) }
             if c.sourceFailure { try s.sourceFailed(monitorSlotId: "right", hostTimeUs: 1000030, reason: "source disconnected") }
             try finishSession(s)
             let p = try s.project()
+            XCTAssertEqual(p.manifest.pointerTimingBasis, c.pointerTimingBasis, c.name)
+            XCTAssertEqual(j.records.map(\.event), c.events, c.name)
             XCTAssertEqual(s.state, c.state, c.name)
             XCTAssertEqual(j.records.count, c.rawCount, c.name)
             XCTAssertEqual(p.events.count, c.projectedCount, c.name)

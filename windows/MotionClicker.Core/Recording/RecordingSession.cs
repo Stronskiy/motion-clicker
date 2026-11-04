@@ -21,6 +21,8 @@ public sealed class RecordingSession
     private readonly string takeId;
     private readonly RecordingTarget[] targets;
     private readonly IEventJournal journal;
+    private readonly PointerTimingBasis? pointerTimingBasis;
+    private readonly PointerTimingValidation pointerTimingValidation=new();
     private readonly Dictionary<string,StreamState> streams;
     private bool tapReady,journalFailed;
     private long epoch,duration=1,count;
@@ -32,8 +34,10 @@ public sealed class RecordingSession
     private RecordingState terminalState=RecordingState.Completed;
     private static RecordingManifest Clone(RecordingManifest m)=>RecordingJson.Deserialize<RecordingManifest>(RecordingJson.Serialize(m));
 
-    public RecordingSession(string takeId,RecordingTarget[] targets,IEventJournal journal)
+    public RecordingSession(string takeId,RecordingTarget[] targets,IEventJournal journal,PointerTimingBasis? pointerTimingBasis=null)
     {
+        Require(pointerTimingBasis is null || Enum.IsDefined(pointerTimingBasis.Value),"Invalid timing basis");
+        this.pointerTimingBasis=pointerTimingBasis;
         Require(targets.Length>0,"No recording targets");
         RunPlanCompiler.Compile(new(1,takeId,0,targets.Select(t=>t.Slot).ToArray(),[],[],[],[]));
         var ids=new HashSet<string>(StringComparer.Ordinal);
@@ -83,6 +87,7 @@ public sealed class RecordingSession
         if(State!=RecordingState.Recording||e.IsOwnInjected||e.IsControl)return;
         CheckedRecording(()=>{
             var time=checked(e.HostTimeUs-epoch);if(time<0)return;
+            pointerTimingValidation.Accept(e,pointerTimingBasis);
             Require(lastHost is null||e.HostTimeUs>=lastHost,"Reversed pointer timestamp");
             Require(double.IsFinite(e.NativePosition.X)&&double.IsFinite(e.NativePosition.Y),"Invalid pointer coordinate");lastHost=e.HostTimeUs;
             var target=targets.FirstOrDefault(t=>Contains(e.NativePosition,t.Display.NativeBounds));
@@ -196,7 +201,7 @@ public sealed class RecordingSession
             media.Add(new(id,$"media/{takeId}/{id}.mp4",s.Clock!,s.Zero,t.Duration,s.Count,s.Gaps,successful?WriterStatus.Succeeded:WriterStatus.Failed,s.GapCount,$"takes/{takeId}/gaps.jsonl",successful?s.SourceFailure:failure??"Empty or incomplete writer"));
         }
         try{journal.Flush();}catch(Exception e){journalFailed=true;Interrupt(e.Message,true);}
-        State=terminalState;result=new(1,takeId,State,epoch,duration,targets.Select(t=>t.Slot).ToArray(),media.ToArray(),count,incomplete.Order(StringComparer.Ordinal).ToArray(),warnings.ToArray(),reason);
+        State=terminalState;result=new(1,takeId,State,epoch,duration,targets.Select(t=>t.Slot).ToArray(),media.ToArray(),count,incomplete.Order(StringComparer.Ordinal).ToArray(),warnings.ToArray(),reason,pointerTimingBasis);
     }
     public RecordingResult Project()
     {

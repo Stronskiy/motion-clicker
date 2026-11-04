@@ -17,9 +17,11 @@ enum RecordingJournalValidation {
         let ids = try RecordingIdentityIndex(root: scratchRoot);defer { ids.close() }
         try ids.add("entity:" + m.takeId)
         for slot in m.targets { try ids.add("entity:" + slot.id) }
+        var timing = PointerTimingValidation()
         var actual: Int64 = 0, lastTime: Int64 = -1
         var held: String?, button: MouseButton?, crossed = false
         try read { r in
+            try timing.accept(r.event, basis: m.pointerTimingBasis)
             try recordingRequire(!crossed && Int64(r.sequence) == actual && r.timeUs >= 0 && r.timeUs >= lastTime && r.timeUs < m.durationUs,"Invalid raw journal ordering/range")
             try recordingRequire(!r.event.isOwnInjected && !r.event.isControl && r.event.nativePosition.x.isFinite && r.event.nativePosition.y.isFinite && recordingSubtract(r.event.hostTimeUs,m.epochHostUs) == r.timeUs,"Invalid raw capture timestamp/origin")
             lastTime = r.timeUs;actual = try recordingAdd(actual,1)

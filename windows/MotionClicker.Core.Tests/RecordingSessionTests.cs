@@ -19,9 +19,9 @@ public sealed class RecordingSessionTests
         var g=new DisplayGeometry(new(pair.Item1/2,0),new(200,100),2,0);
         return new RecordingTarget(new(pair.Item2,pair.Item2,g),new("native-"+pair.Item2,pair.Item2,g,new(new(pair.Item1,0),new(400,200))));
     }).ToArray();
-    internal static RecordingSession Ready(MemoryJournal j,long epoch=1000000)
+    internal static RecordingSession Ready(MemoryJournal j,long epoch=1000000,PointerTimingBasis? basis=null)
     {
-        var s=new RecordingSession("take",Targets(),j);
+        var s=new RecordingSession("take",Targets(),j,basis);
         foreach(var id in new[]{"left","right"}) s.SourceReady(id,new(0,1000000,1000000));
         s.EventTapReady();s.Begin(epoch);return s;
     }
@@ -31,16 +31,17 @@ public sealed class RecordingSessionTests
         s.Stop(2000000);s.WriterFinished("left",WriterStatus.Succeeded,1000);
         Assert.Equal(RecordingState.Finalizing,s.State);s.WriterFinished("right",WriterStatus.Succeeded,1000);
     }
-    private sealed record Case(string Name,CapturedPointerEvent[] Events,RecordingState State,int RawCount,int ProjectedCount,int IncompleteCount,bool SourceFailure);
+    private sealed record Case(string Name,CapturedPointerEvent[] Events,RecordingState State,int RawCount,int ProjectedCount,int IncompleteCount,bool SourceFailure,PointerTimingBasis? PointerTimingBasis=null);
     [Fact] public void SharedDragInterruptionAndSourceLossFixtures()
     {
         var cases=RecordingJson.Deserialize<Case[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"fixtures","recording","sessions.json")));
         foreach(var c in cases)
         {
-            var j=new MemoryJournal();var s=Ready(j);Frames(s);
+            var j=new MemoryJournal();var s=Ready(j,basis:c.PointerTimingBasis);Frames(s);
             foreach(var e in c.Events)s.Receive(e);
             if(c.SourceFailure)s.SourceFailed("right",1000030,"source disconnected");
             Finish(s);var p=s.Project();
+            Assert.Equal(c.PointerTimingBasis,p.Manifest.PointerTimingBasis);Assert.Equal(c.Events,j.Records.Select(r=>r.Event));
             Assert.Equal(c.State,s.State);Assert.Equal(c.RawCount,j.Records.Count);Assert.Equal(c.ProjectedCount,p.Events.Length);
             Assert.Equal(c.IncompleteCount,p.Manifest.IncompleteGroupIds.Length);
             Assert.Equal(new long?[]{0,250000},p.Manifest.Streams.Select(x=>x.MediaTimeZeroUs));

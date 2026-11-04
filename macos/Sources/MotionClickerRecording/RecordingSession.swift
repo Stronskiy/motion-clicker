@@ -19,13 +19,15 @@ public final class RecordingSession {
     public private(set) var state: RecordingState = .preparing
     public private(set) var result: RecordingManifest?
     private let takeId: String, targets: [RecordingTarget], journal: EventJournal
+    private let pointerTimingBasis: PointerTimingBasis?
+    private var pointerTimingValidation = PointerTimingValidation()
     private var streams: [String: Stream]
     private var tapReady = false, epoch: Int64 = 0, duration: Int64 = 1, count: Int64 = 0
     private var lastHost: Int64?, heldGroup: String?, heldButton: MouseButton?
     private var incomplete = Set<String>(), warnings: [String] = []
     private var terminalState: RecordingState = .completed, reason: String?, journalFailed = false
 
-    public init(takeId: String, targets: [RecordingTarget], journal: EventJournal) throws {
+    public init(takeId: String, targets: [RecordingTarget], journal: EventJournal, pointerTimingBasis: PointerTimingBasis? = nil) throws {
         try recordingRequire(!targets.isEmpty, "No recording targets")
         _ = try RunPlanCompiler.compile(MotionProject(id: takeId, monitorSlots: targets.map(\.slot)))
         var displayIds = Set<String>()
@@ -39,6 +41,7 @@ public final class RecordingSession {
                 try recordingRequire(!(a.origin.x < b.origin.x + b.size.width && b.origin.x < a.origin.x + a.size.width && a.origin.y < b.origin.y + b.size.height && b.origin.y < a.origin.y + a.size.height), "Overlapping native targets")
             }
         }
+        self.pointerTimingBasis = pointerTimingBasis
         self.takeId = takeId; self.targets = targets; self.journal = journal
         streams = Dictionary(uniqueKeysWithValues: targets.map { ($0.slot.id, Stream()) })
     }
@@ -84,6 +87,7 @@ public final class RecordingSession {
         try checkedRecording {
             let time = try recordingSubtract(event.hostTimeUs, epoch)
             if time < 0 { return }
+            try pointerTimingValidation.accept(event, basis: pointerTimingBasis)
             try recordingRequire(lastHost == nil || event.hostTimeUs >= lastHost!, "Reversed pointer timestamp")
             try recordingRequire(event.nativePosition.x.isFinite && event.nativePosition.y.isFinite, "Invalid pointer coordinate")
             lastHost = event.hostTimeUs
@@ -219,7 +223,7 @@ public final class RecordingSession {
         }
         do { try journal.flush() } catch { journalFailed = true; interrupt(String(describing: error),failed: true) }
         state = terminalState
-        result = RecordingManifest(manifestVersion: 1,takeId: takeId,state: state,epochHostUs: epoch,durationUs: duration,targets: targets.map(\.slot),streams: media,rawEventCount: count,incompleteGroupIds: incomplete.sorted(),warnings: warnings,reason: reason)
+        result = RecordingManifest(manifestVersion: 1,takeId: takeId,state: state,epochHostUs: epoch,durationUs: duration,targets: targets.map(\.slot),streams: media,rawEventCount: count,incompleteGroupIds: incomplete.sorted(),warnings: warnings,reason: reason,pointerTimingBasis: pointerTimingBasis)
     }
     public func project() throws -> RecordingResult {
         guard let result else { throw RecordingError(message: "Recording has no final manifest") }
