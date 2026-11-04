@@ -34,12 +34,14 @@ internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,
     {
         if(Volatile.Read(ref stop)!=0)return;
         Interlocked.Increment(ref callbacks);
+        long? observedSourceTicks=null;
         try
         {
             if(Volatile.Read(ref stop)!=0)return;
             using var frame=pool.TryGetNextFrame();
             if(frame is null)return;
             var sourceTicks=frame.SystemRelativeTime.Ticks; // compositor QPC 100ns, never arrival time.
+            observedSourceTicks=sourceTicks;
             if(sourceTicks<0)throw new RecordingException("Negative WGC source timestamp");
             if(frame.ContentSize.Width!=target.Display.NativeBounds.Size.Width||frame.ContentSize.Height!=target.Display.NativeBounds.Size.Height)
                 throw new RecordingException("WGC source pixel size changed");
@@ -59,7 +61,14 @@ internal sealed class NativeWgcSource(RecordingTarget target,nint frozenMonitor,
             }
             finally{Volatile.Write(ref copying,0);}
         }
-        catch(Exception error){fault("WGC source failed: "+error.Message);}
+        catch(Exception error)
+        {
+            // A genuine frame that failed ownership/copy is actual loss. End the
+            // previous valid image there, never stretch stale pixels to arrival/stop.
+            var reason="WGC source failed: "+error.Message;
+            if(observedSourceTicks is long ticks&&ticks>=0)drop(ticks,reason);
+            fault(reason);
+        }
         finally{Interlocked.Decrement(ref callbacks);callbacksChanged.Set();}
     }
     private void ItemClosed(GraphicsCaptureItem sender,object args)=>fault("Selected WGC monitor source closed or access was lost");

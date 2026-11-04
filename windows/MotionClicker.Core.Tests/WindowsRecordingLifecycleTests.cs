@@ -27,6 +27,7 @@ public sealed class WindowsRecordingLifecycleTests
         internal Action<WindowsVideoFrame>? Image;
         internal Action<WindowsPointerSample>? Sample;
         internal Action<string>? Fault;
+        internal Action<long,string>? Drop;
         internal readonly Dictionary<string,Source> Sources=[];
         internal readonly Dictionary<string,Action<WindowsVideoFrame>> Images=[];
         internal bool EncoderFails,EncoderClosureUnknown;
@@ -34,7 +35,7 @@ public sealed class WindowsRecordingLifecycleTests
         public WindowsRecordingDisplay[] Validate(RecordingTarget[] targets)=>targets.Select(t=>new WindowsRecordingDisplay(t.Slot.Id,t.Display.Id,400,200)).ToArray();
         public IWindowsRecordingSource Capture(RecordingTarget target,Action<WindowsVideoFrame> image,Action<long,string> drop,Action<string> fault)
         {
-            Image??=image;Fault=fault;Images.Add(target.Slot.Id,image);
+            Image??=image;Fault=fault;Drop=drop;Images.Add(target.Slot.Id,image);
             var source=Sources.Count==0?Video:new Source();Sources.Add(target.Slot.Id,source);return source;
         }
         public IWindowsPointerSource Pointer(Action<WindowsPointerSample> sample,Action<string> fault){Sample=sample;return Hook;}
@@ -229,6 +230,17 @@ public sealed class WindowsRecordingLifecycleTests
             Assert.False((await f.Controller.RecoveryAsync())!.ManifestPublished);
         }
         finally{f.Platform.ClockFails=false;}
+    }
+    [Fact] public async Task FailedGenuineFrameKeepsValidPrefixAndFullLossThroughStop()
+    {
+        await using var f=new Fixture();await f.Prepare();var start=f.Controller.StartAsync();
+        await WaitForState(f.Controller,RecordingState.Recording);f.Platform.Frame(1_000_010);await start;
+        Interlocked.Exchange(ref f.Platform.Now,1_100_000);
+        f.Platform.Drop!(10_500_000,"owned copy failed");f.Platform.Fault!("owned copy failed");
+        var done=(await f.Controller.StopAsync())!;var stream=done.Manifest.Streams[0];
+        Assert.Equal(RecordingState.Interrupted,done.Manifest.State);Assert.Equal(49_990,stream.EncodedDurationUs);
+        Assert.Contains(stream.Gaps,g=>g.Kind==GapKind.Backpressure&&g.StartUs==50_000&&g.EndUs==100_000);
+        Assert.Equal(1,stream.FrameCount);
     }
     private static async Task WaitForState(WindowsRecordingController controller,RecordingState state)
     {
